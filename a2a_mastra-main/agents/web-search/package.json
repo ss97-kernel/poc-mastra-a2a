@@ -1,0 +1,27 @@
+{
+  "name": "@a2a-demo/web-search-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "mastra dev",
+    "dev": "mastra dev"
+  },
+  "dependencies": {
+    "@mastra/core": "latest",
+    "mastra": "latest",
+    "@mastra/client-js": "latest",
+    "@mastra/mcp": "latest",
+    "@ai-sdk/amazon-bedrock": "^2.2.11",
+    "ai": "^4.0.0",
+    "zod": "^3.23.8",
+    "dotenv": "^16.4.7",
+    "langfuse": "^3.37.6",
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.3",
+    "typescript": "^5.5.0"
+  }
+}
