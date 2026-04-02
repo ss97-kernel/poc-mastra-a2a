@@ -107,10 +107,29 @@ export function extractA2ASearchResult(response: unknown): unknown {
     const searchArtifact = artifacts.find(artifact => artifact.type === 'search-result');
     if (searchArtifact?.data && isObject(searchArtifact.data)) {
       const data = searchArtifact.data as Record<string, unknown>;
+      const rawResults = isObject(data.rawResults)
+        ? (data.rawResults as Record<string, unknown>)
+        : isObject(data.fullResponse)
+          ? (data.fullResponse as Record<string, unknown>)
+          : undefined;
+
       return {
         searchResults: data.summary || searchArtifact.data,
-        rawResults: data.rawResults || data.fullResponse,
+        rawResults,
         query: data.query,
+        results: Array.isArray(rawResults?.results) ? rawResults.results : [],
+        totalResults:
+          typeof rawResults?.totalResults === 'number'
+            ? rawResults.totalResults
+            : undefined,
+        searchTime:
+          typeof rawResults?.searchTime === 'number'
+            ? rawResults.searchTime
+            : undefined,
+        searchType:
+          typeof rawResults?.searchType === 'string'
+            ? rawResults.searchType
+            : undefined,
         metadata: searchArtifact.metadata,
       };
     }

@@ -76,6 +76,39 @@ export const langfuse = new Langfuse({
   baseUrl: process.env.LANGFUSE_BASEURL || 'https://cloud.langfuse.com',
 });
 
+function normalizeUserSearchQuery(query: string) {
+  let normalized = query.trim().replace(/\s+/g, ' ');
+
+  normalized = normalized.replace(
+    /^(please\s+)?(find|search(?:\s+for)?|look\s+up|show\s+me|get\s+me|tell\s+me|research)\s+/i,
+    ''
+  );
+
+  normalized = normalized.replace(
+    /^(the\s+)?(latest|recent|current)\s+/i,
+    ''
+  );
+
+  normalized = normalized.replace(
+    /^(news|headlines|announcements?|updates?)\s+(about|on|for|regarding)\s+/i,
+    ''
+  );
+
+  normalized = normalized.replace(
+    /^(about|on|for|regarding)\s+/i,
+    ''
+  );
+
+  normalized = normalized.replace(
+    /^(recent|latest|current)\s+(news|headlines|announcements?|updates?)\s+(about|on|for|regarding)\s+/i,
+    ''
+  );
+
+  normalized = normalized.replace(/[.?!]+$/g, '').trim();
+
+  return normalized || query.trim();
+}
+
 const mcpSearchPayloadSchema = z.object({
   results: z.array(searchResultItemSchema),
   totalResults: z.number(),
@@ -83,13 +116,14 @@ const mcpSearchPayloadSchema = z.object({
 });
 
 export function buildSearchConfig(task: z.infer<typeof searchTaskSchema>) {
-  let enhancedQuery = task.query;
+  const normalizedQuery = normalizeUserSearchQuery(task.query);
+  let enhancedQuery = normalizedQuery;
   const originalOptions = task.options || {};
   let searchOptions: Record<string, unknown> = { ...originalOptions };
 
   switch (task.type) {
     case 'news-search':
-      enhancedQuery = `latest news ${task.query}`;
+      enhancedQuery = `latest news ${normalizedQuery}`;
       searchOptions = {
         ...searchOptions,
         timeRange: 'week',
@@ -98,7 +132,7 @@ export function buildSearchConfig(task: z.infer<typeof searchTaskSchema>) {
       break;
 
     case 'scholarly-search':
-      enhancedQuery = `academic research ${task.query}`;
+      enhancedQuery = `academic research ${normalizedQuery}`;
       searchOptions = {
         ...searchOptions,
         category: 'scholarly',
@@ -170,6 +204,110 @@ type MCPToolResult = {
   }>;
 };
 
+type SearchAttempt = {
+  query: string;
+  toolName: string;
+};
+
+function uniqueNonEmpty(values: string[]) {
+  return [...new Set(values.map(value => value.trim()).filter(Boolean))];
+}
+
+function simplifyQueryForFallback(query: string) {
+  const stripped = query
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const removableTokens = new Set([
+    'latest',
+    'recent',
+    'current',
+    'news',
+    'headline',
+    'headlines',
+    'announcement',
+    'announcements',
+    'update',
+    'updates',
+    'about',
+    'regarding',
+    'around',
+    'find',
+    'search',
+    'lookup',
+    'look',
+    'show',
+    'tell',
+    'please',
+  ]);
+
+  const simplified = stripped
+    .split(' ')
+    .filter(token => {
+      const normalized = token.toLowerCase();
+      return normalized.length > 2 && !removableTokens.has(normalized);
+    })
+    .join(' ')
+    .trim();
+
+  return simplified || stripped;
+}
+
+function buildSearchAttempts(
+  task: z.infer<typeof webSearchTaskWorkflowInputSchema>
+): SearchAttempt[] {
+  const { enhancedQuery } = buildSearchConfig(task);
+  const normalizedQuery = normalizeUserSearchQuery(task.query);
+  const simplifiedQuery = simplifyQueryForFallback(normalizedQuery);
+  const defaultTool = getMcpToolNameForTask(task.type);
+  const webTool = 'brave-search_brave_web_search';
+  const newsTool = 'brave-search_brave_news_search';
+
+  switch (task.type) {
+    case 'news-search':
+      return uniqueNonEmpty([
+        enhancedQuery,
+        normalizedQuery,
+        simplifiedQuery,
+        `latest ${simplifiedQuery}`,
+      ]).flatMap(query => {
+        if (query === enhancedQuery || query === normalizedQuery) {
+          return [{ query, toolName: newsTool }];
+        }
+
+        return [
+          { query, toolName: newsTool },
+          { query, toolName: webTool },
+        ];
+      });
+
+    case 'scholarly-search':
+      return uniqueNonEmpty([
+        enhancedQuery,
+        normalizedQuery,
+        simplifiedQuery,
+      ]).map(query => ({
+        query,
+        toolName: webTool,
+      }));
+
+    case 'web-search':
+    case 'comprehensive-search':
+      return uniqueNonEmpty([
+        enhancedQuery,
+        normalizedQuery,
+        simplifiedQuery,
+      ]).map(query => ({
+        query,
+        toolName: defaultTool,
+      }));
+
+    default:
+      return [{ query: enhancedQuery, toolName: defaultTool }];
+  }
+}
+
 export function getMcpToolNameForTask(
   taskType: z.infer<typeof webSearchTaskWorkflowInputSchema>['type']
 ) {
@@ -202,33 +340,53 @@ export function parseMcpSearchResponse(
 export async function performBraveSearch(
   task: z.infer<typeof webSearchTaskWorkflowInputSchema>
 ): Promise<SearchExecutionResult> {
-  const { enhancedQuery, count } = buildSearchConfig(task);
+  const { count } = buildSearchConfig(task);
 
   if (!process.env.BRAVE_SEARCH_API_KEY) {
     throw new Error('BRAVE_SEARCH_API_KEY environment variable is required');
   }
 
   const tools = await initializeMCPClient();
-  const toolName = getMcpToolNameForTask(task.type);
-  const tool = tools[toolName];
+  const attempts = buildSearchAttempts(task);
+  let lastResult: SearchExecutionResult | undefined;
 
-  if (!tool) {
-    throw new Error(`MCP tool ${toolName} is not available`);
+  for (const attempt of attempts) {
+    const tool = tools[attempt.toolName];
+
+    if (!tool) {
+      continue;
+    }
+
+    const result = await tool.execute(
+      {
+        query: attempt.query,
+        count,
+      },
+      {
+        context: {
+          messages: [],
+        },
+      }
+    );
+
+    const parsed = parseMcpSearchResponse(
+      result as MCPToolResult,
+      task,
+      attempt.query
+    );
+
+    lastResult = parsed;
+
+    if (parsed.results.length > 0) {
+      return parsed;
+    }
   }
 
-  const result = await tool.execute(
-    {
-      query: enhancedQuery.trim(),
-      count,
-    },
-    {
-      context: {
-        messages: [],
-      },
-    }
-  );
+  if (lastResult) {
+    return lastResult;
+  }
 
-  return parseMcpSearchResponse(result as MCPToolResult, task, enhancedQuery);
+  throw new Error('No MCP search tool was available for the requested task');
 }
 
 const performBraveSearchStep = createStep({

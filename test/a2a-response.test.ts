@@ -68,7 +68,12 @@ describe("A2A response utilities", () => {
               type: "search-result",
               data: {
                 summary: "Latest news summary",
-                rawResults: { items: [] },
+                rawResults: {
+                  results: [{ title: "Latest AI launch" }],
+                  totalResults: 1,
+                  searchTime: 42,
+                  searchType: "news-search",
+                },
                 query: "latest ai news"
               },
               metadata: {
@@ -80,8 +85,17 @@ describe("A2A response utilities", () => {
       })
     ).toEqual({
       searchResults: "Latest news summary",
-      rawResults: { items: [] },
+      rawResults: {
+        results: [{ title: "Latest AI launch" }],
+        totalResults: 1,
+        searchTime: 42,
+        searchType: "news-search",
+      },
       query: "latest ai news",
+      results: [{ title: "Latest AI launch" }],
+      totalResults: 1,
+      searchTime: 42,
+      searchType: "news-search",
       metadata: {
         provider: "brave"
       }
@@ -97,7 +111,12 @@ describe("A2A response utilities", () => {
               type: "search-result",
               data: {
                 summary: "Legacy summary",
-                fullResponse: { items: [{ title: "old" }] },
+                fullResponse: {
+                  results: [{ title: "old" }],
+                  totalResults: 1,
+                  searchTime: 21,
+                  searchType: "web-search",
+                },
                 query: "legacy ai news"
               }
             }
@@ -106,8 +125,17 @@ describe("A2A response utilities", () => {
       })
     ).toEqual({
       searchResults: "Legacy summary",
-      rawResults: { items: [{ title: "old" }] },
+      rawResults: {
+        results: [{ title: "old" }],
+        totalResults: 1,
+        searchTime: 21,
+        searchType: "web-search",
+      },
       query: "legacy ai news",
+      results: [{ title: "old" }],
+      totalResults: 1,
+      searchTime: 21,
+      searchType: "web-search",
       metadata: undefined
     });
   });

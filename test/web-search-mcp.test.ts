@@ -119,4 +119,153 @@ describe('web search MCP execution', () => {
       }
     );
   });
+
+  it('normalizes prompt-style news queries before calling MCP', async () => {
+    const execute = vi.fn(async () => ({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            results: [],
+            totalResults: 0,
+            searchTime: 123,
+          }),
+        },
+      ],
+    }));
+
+    vi.doMock('../agents/web-search/src/utils/mcpClient.ts', () => ({
+      initializeMCPClient: vi.fn(async () => ({
+        'brave-search_brave_news_search': { execute },
+      })),
+    }));
+
+    const { performBraveSearch } = await import(
+      '../agents/web-search/src/mastra/workflows/searchTaskWorkflow.ts'
+    );
+
+    await performBraveSearch({
+      type: 'news-search',
+      query: 'Find recent news about Anthropic enterprise announcements.',
+      taskId: 'task-3',
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      {
+        query: 'latest news Anthropic enterprise announcements',
+        count: 10,
+      },
+      {
+        context: {
+          messages: [],
+        },
+      }
+    );
+  });
+
+  it('falls back to broader MCP queries when the first news search is empty', async () => {
+    const newsExecute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              results: [],
+              totalResults: 0,
+              searchTime: 111,
+            }),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              results: [],
+              totalResults: 0,
+              searchTime: 112,
+            }),
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              results: [],
+              totalResults: 0,
+              searchTime: 113,
+            }),
+          },
+        ],
+      });
+
+    const webExecute = vi.fn(async () => ({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            results: [
+              {
+                title: 'Anthropic expands enterprise AI offering',
+                url: 'https://example.com/anthropic-enterprise',
+                snippet: 'Anthropic announced new enterprise features.',
+                source: 'example.com',
+              },
+            ],
+            totalResults: 1,
+            searchTime: 211,
+          }),
+        },
+      ],
+    }));
+
+    vi.doMock('../agents/web-search/src/utils/mcpClient.ts', () => ({
+      initializeMCPClient: vi.fn(async () => ({
+        'brave-search_brave_news_search': { execute: newsExecute },
+        'brave-search_brave_web_search': { execute: webExecute },
+      })),
+    }));
+
+    const { performBraveSearch } = await import(
+      '../agents/web-search/src/mastra/workflows/searchTaskWorkflow.ts'
+    );
+
+    const result = await performBraveSearch({
+      type: 'news-search',
+      query: 'Find recent news about Anthropic enterprise announcements.',
+      taskId: 'task-4',
+    });
+
+    expect(newsExecute).toHaveBeenCalledTimes(3);
+    expect(webExecute).toHaveBeenCalledWith(
+      {
+        query: 'Anthropic enterprise',
+        count: 10,
+      },
+      {
+        context: {
+          messages: [],
+        },
+      }
+    );
+
+    expect(result).toEqual({
+      query: 'Anthropic enterprise',
+      searchType: 'news-search',
+      totalResults: 1,
+      searchTime: 211,
+      results: [
+        {
+          title: 'Anthropic expands enterprise AI offering',
+          url: 'https://example.com/anthropic-enterprise',
+          snippet: 'Anthropic announced new enterprise features.',
+          source: 'example.com',
+        },
+      ],
+    });
+  });
 });
