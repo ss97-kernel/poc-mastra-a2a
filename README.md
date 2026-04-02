@@ -1,1 +1,0 @@
-# poc-mastra-a2a

@@ -1,0 +1,146 @@
+services:
+  # Frontend - Next.js Web Interface
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: a2a-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - a2a-network
+    depends_on:
+      - gateway
+
+  # Gateway Agent - Entry point for all requests
+  gateway:
+    build:
+      context: .
+      dockerfile: agents/gateway/Dockerfile
+    container_name: a2a-gateway-agent
+    ports:
+      - "${GATEWAY_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - AGENT_ID=gateway-agent-01
+      - AGENT_NAME=Gateway Agent
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_GATEWAY_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
+      - DATA_PROCESSOR_URL=http://data-processor:3002
+      - SUMMARIZER_URL=http://summarizer:3003
+      - WEB_SEARCH_URL=http://web-search:3004
+      - DATA_PROCESSOR_AGENT_ID=data-processor-agent-01
+      - SUMMARIZER_AGENT_ID=summarizer-agent-01
+      - WEB_SEARCH_AGENT_ID=web-search-agent-01
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
+    networks:
+      - a2a-network
+    depends_on:
+      - data-processor
+      - summarizer
+      - web-search
+    volumes:
+      - ./agents/gateway/src:/app/src
+
+  # Data Processor Agent - Handles data processing tasks
+  data-processor:
+    build:
+      context: .
+      dockerfile: agents/data-processor/Dockerfile
+    container_name: a2a-data-processor-agent
+    ports:
+      - "${DATA_PROCESSOR_PORT:-3002}:3002"
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      - AGENT_ID=data-processor-agent-01
+      - AGENT_NAME=Data Processor Agent
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_DATA_PROCESSOR_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
+    networks:
+      - a2a-network
+    volumes:
+      - ./agents/data-processor/src:/app/src
+
+  # Summarizer Agent - Summarizes processed data
+  summarizer:
+    build:
+      context: .
+      dockerfile: agents/summarizer/Dockerfile
+    container_name: a2a-summarizer-agent
+    ports:
+      - "${SUMMARIZER_PORT:-3003}:3003"
+    environment:
+      - NODE_ENV=development
+      - PORT=3003
+      - AGENT_ID=summarizer-agent-01
+      - AGENT_NAME=Summarizer Agent
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_SUMMARIZER_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
+    networks:
+      - a2a-network
+    volumes:
+      - ./agents/summarizer/src:/app/src
+
+  # Web Search Agent - Real-time web search and information retrieval
+  web-search:
+    build:
+      context: .
+      dockerfile: agents/web-search/Dockerfile
+    container_name: a2a-web-search-agent
+    ports:
+      - "${WEB_SEARCH_PORT:-3004}:3004"
+    environment:
+      - NODE_ENV=development
+      - PORT=3004
+      - AGENT_ID=web-search-agent-01
+      - AGENT_NAME=Web Search Agent
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_WEB_SEARCH_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
+    networks:
+      - a2a-network
+    volumes:
+      - ./agents/web-search/src:/app/src
+
+networks:
+  a2a-network:
+    driver: bridge

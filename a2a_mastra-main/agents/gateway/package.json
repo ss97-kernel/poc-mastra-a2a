@@ -1,0 +1,27 @@
+{
+  "name": "@a2a-demo/gateway-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@mastra/core": "1.16.0",
+    "@mastra/client-js": "1.10.0",
+    "@openbox-ai/openbox-mastra-sdk": "0.1.0",
+    "@ai-sdk/openai": "^3.0.48",
+    "ai": "^5.0.160",
+    "express": "^4.21.2",
+    "zod": "^3.23.8",
+    "dotenv": "^16.4.7",
+    "langfuse": "^3.37.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.5.0"
+  }
+}
