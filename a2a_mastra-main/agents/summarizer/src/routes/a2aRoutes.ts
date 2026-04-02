@@ -55,7 +55,7 @@ router.post('/task', async (req, res) => {
                 role: 'agent',
                 parts: [{
                   type: 'text',
-                  text: `エラーが発生しました: ${error.message}`
+                  text: `An error occurred: ${error.message}`
                 }]
               }
             },
@@ -75,7 +75,7 @@ router.post('/task', async (req, res) => {
             role: 'agent',
             parts: [{
               type: 'text',
-              text: '要約タスクを処理中です...'
+              text: 'Processing summarization task...'
             }]
           }
         },
@@ -96,7 +96,7 @@ router.post('/task', async (req, res) => {
             role: 'agent',
             parts: [{
               type: 'text',
-              text: `タスク作成エラー: ${error instanceof Error ? error.message : 'Unknown error'}`
+              text: `Task creation error: ${error instanceof Error ? error.message : 'Unknown error'}`
             }]
           }
         },
@@ -166,7 +166,7 @@ router.post('/message', async (req, res) => {
               role: 'agent',
               parts: [{
                 type: 'text',
-                text: `エラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}`
+                text: `An error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`
               }]
             }
           },
@@ -203,7 +203,7 @@ router.get('/task/:taskId', (req, res) => {
             role: 'agent',
             parts: [{
               type: 'text',
-              text: 'タスクが見つかりません'
+              text: 'Task not found'
             }]
           }
         },
@@ -231,7 +231,7 @@ router.delete('/task/:taskId', (req, res) => {
             role: 'agent',
             parts: [{
               type: 'text',
-              text: 'タスクが見つかりません'
+              text: 'Task not found'
             }]
           }
         },
@@ -248,7 +248,7 @@ router.delete('/task/:taskId', (req, res) => {
         role: 'agent',
         parts: [{
           type: 'text',
-          text: 'リクエストによりタスクがキャンセルされました'
+          text: 'Task cancelled by request'
         }]
       }
     };
@@ -264,7 +264,7 @@ router.get('/agent', (req, res) => {
     id: AGENT_ID,
     name: AGENT_NAME,
     type: 'summarizer',
-    description: 'サマライザーエージェント - 処理済みデータと分析結果の簡潔で意味のある要約を作成します',
+    description: 'Summarizer agent for concise, meaningful summaries of processed data and analysis results',
     capabilities: ['text-summarization', 'executive-summary', 'insight-extraction', 'audience-specific-content'],
     endpoint: `http://summarizer:${PORT}`,
     status: 'online',

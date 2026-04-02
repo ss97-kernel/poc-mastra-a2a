@@ -9,7 +9,11 @@ function extractKeyFindings(synthesisResult: any): string[] {
     const lines = synthesisResult.split('\n');
     const findings = lines.filter((line: string) => 
       line.trim().match(/^[\d•\-\*]\.|^[\d\.]+\s/) && 
-      (line.includes('発見') || line.includes('結果') || line.includes('重要'))
+      (
+        line.toLowerCase().includes('finding') ||
+        line.toLowerCase().includes('result') ||
+        line.toLowerCase().includes('key')
+      )
     ).map((line: string) => line.trim());
     return findings.slice(0, 5); // Return top 5 findings
   }
@@ -23,7 +27,11 @@ function extractRecommendations(synthesisResult: any): string[] {
     const lines = synthesisResult.split('\n');
     const recommendations = lines.filter((line: string) => 
       line.trim().match(/^[\d•\-\*]\.|^[\d\.]+\s/) && 
-      (line.includes('推奨') || line.includes('提案') || line.includes('改善'))
+      (
+        line.toLowerCase().includes('recommend') ||
+        line.toLowerCase().includes('suggest') ||
+        line.toLowerCase().includes('improv')
+      )
     ).map((line: string) => line.trim());
     return recommendations.slice(0, 5); // Return top 5 recommendations
   }
@@ -48,7 +56,7 @@ export async function executeDeepResearchWorkflow(
     task.progress = 10;
     asyncTasks.set(taskId, task);
 
-    // Phase 1: Comprehensive Web Search - 検索フェーズ開始 (10%)
+    // Phase 1: Comprehensive web search begins (10%)
     console.log(`Deep Research Phase 1: Starting comprehensive search for topic: ${topic}`);
     
     const searchResponse = await sendA2AMessage('web-search', {
@@ -60,35 +68,37 @@ export async function executeDeepResearchWorkflow(
       },
     });
 
-    // Extract search result from A2A response
+    // Extract the search result from the A2A response.
     let searchResult;
     if (searchResponse.task?.artifacts && searchResponse.task.artifacts.length > 0) {
       const searchArtifact = searchResponse.task.artifacts.find((artifact: any) => artifact.type === 'search-result');
       if (searchArtifact && searchArtifact.data) {
+        const rawResults =
+          searchArtifact.data.rawResults || searchArtifact.data.fullResponse || {};
         searchResult = {
           searchResults: searchArtifact.data.summary,
-          fullResponse: searchArtifact.data.fullResponse,
+          rawResults,
           query: searchArtifact.data.query,
           metadata: searchArtifact.metadata,
-          sources: searchArtifact.data.fullResponse?.sources || [],
+          sources: rawResults.results || rawResults.sources || [],
         };
       } else {
         searchResult = searchResponse.task.artifacts[0].data || searchResponse;
       }
     } else {
-      // Fallback to status message
+      // Fallback to the status message.
       const statusMessage = searchResponse.task?.status?.message?.parts?.[0]?.text;
       searchResult = statusMessage || searchResponse;
     }
     
-    // Update progress after search completion - 検索フェーズ完了 (33%)
+    // Update progress after the search phase completes (33%)
     task.progress = 33;
     task.currentPhase = 'analyze';
     asyncTasks.set(taskId, task);
 
     console.log(`Deep Research Phase 2: Analyzing search results`);
     
-    // Phase 2: Data Analysis using A2A Message - データ分析フェーズ開始 (33%)
+    // Phase 2: Data analysis begins (33%)
     const analysisResponse = await sendA2AMessage('data-processor', {
       type: 'research-analysis',
       data: searchResult,
@@ -99,25 +109,25 @@ export async function executeDeepResearchWorkflow(
       },
     });
 
-    // Extract analysis result from A2A response
+    // Extract the analysis result from the A2A response.
     let analysisResult;
     if (analysisResponse.task?.artifacts && analysisResponse.task.artifacts.length > 0) {
       const analysisArtifact = analysisResponse.task.artifacts[0];
       analysisResult = analysisArtifact.data || analysisArtifact;
     } else {
-      // Fallback to status message or direct response
+      // Fallback to the status message or direct response.
       const statusMessage = analysisResponse.task?.status?.message?.parts?.[0]?.text;
       analysisResult = statusMessage || analysisResponse;
     }
     
-    // Update progress after analysis completion - データ分析フェーズ完了 (66%)
+    // Update progress after the analysis phase completes (66%)
     task.progress = 66;
     task.currentPhase = 'synthesize';
     asyncTasks.set(taskId, task);
 
     console.log(`Deep Research Phase 3: Synthesizing comprehensive report`);
     
-    // Phase 3: Synthesis and Report Generation using A2A Message - 結果統合フェーズ開始 (66%)
+    // Phase 3: Synthesis and report generation begin (66%)
     const synthesisResponse = await sendA2AMessage('summarizer', {
       type: 'research-synthesis',
       data: {
@@ -133,30 +143,30 @@ export async function executeDeepResearchWorkflow(
       },
     });
     
-    // Extract synthesis result from A2A response
+    // Extract the synthesis result from the A2A response.
     let synthesisResult;
     if (synthesisResponse.task?.artifacts && synthesisResponse.task.artifacts.length > 0) {
       const synthesisArtifact = synthesisResponse.task.artifacts[0];
       synthesisResult = synthesisArtifact.data || synthesisArtifact;
     } else {
-      // Fallback to status message or direct response
+      // Fallback to the status message or direct response.
       const statusMessage = synthesisResponse.task?.status?.message?.parts?.[0]?.text;
       synthesisResult = statusMessage || synthesisResponse;
     }
     
-    // Parse the synthesis result if it's a JSON string
+    // Parse the synthesis result if it is a JSON string.
     try {
       if (typeof synthesisResult === 'string') {
         synthesisResult = JSON.parse(synthesisResult);
       }
     } catch (e) {
-      // If parsing fails, wrap string response 
+      // If parsing fails, wrap the string response.
       if (typeof synthesisResult === 'string') {
         synthesisResult = { summary: synthesisResult };
       }
     }
 
-    // Update progress to 95% - 結果統合フェーズ完了 (95%)
+    // Update progress to 95% after synthesis completes.
     task.progress = 95;
     task.currentPhase = 'completed';
     asyncTasks.set(taskId, task);

@@ -1,5 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import { getOpenBoxRuntime } from '@openbox-ai/openbox-mastra-sdk';
 import { mastra } from './mastra/index.js';
 import { a2aRoutes } from './routes/a2aRoutes.js';
 import { apiRoutes } from './routes/apiRoutes.js';
@@ -8,7 +9,8 @@ import { langfuse } from './mastra/workflows/summarizationTaskProcessor.js';
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+const JSON_BODY_LIMIT = process.env.A2A_JSON_BODY_LIMIT || '2mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 const PORT = process.env.PORT || 3003;
 const AGENT_ID = process.env.AGENT_ID || 'summarizer-agent-01';
@@ -23,7 +25,7 @@ app.use('/', apiRoutes); // Mount at root for health check
 app.post('/api/agents/:agentId/generate', async (req, res) => {
   try {
     const { agentId } = req.params;
-    const { messages, threadId, resourceId } = req.body;
+    const { messages } = req.body;
     
     // Validate agent exists
     const agent = mastra.getAgent(agentId);
@@ -35,10 +37,7 @@ app.post('/api/agents/:agentId/generate', async (req, res) => {
     }
     
     // Generate response - pass messages as first argument
-    const response = await agent.generate(messages, {
-      threadId,
-      resourceId
-    });
+    const response = await agent.generate(messages);
     
     res.json(response);
   } catch (error) {
@@ -52,12 +51,14 @@ app.post('/api/agents/:agentId/generate', async (req, res) => {
 // Graceful shutdown handler
 process.on('SIGINT', async () => {
   console.log('Shutting down gracefully...');
+  await getOpenBoxRuntime(mastra)?.shutdown();
   await langfuse.shutdownAsync();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log('Shutting down gracefully...');
+  await getOpenBoxRuntime(mastra)?.shutdown();
   await langfuse.shutdownAsync();
   process.exit(0);
 });

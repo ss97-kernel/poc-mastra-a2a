@@ -1,22 +1,4 @@
-import { MastraClient } from '@mastra/client-js';
-
 const AGENT_ID = process.env.AGENT_ID || 'gateway-agent-01';
-
-// Initialize Mastra clients for each agent
-const clients: Record<string, MastraClient> = {};
-
-// Helper function to get or create Mastra client for an agent
-function getAgentClient(agentId: string, baseUrl: string): MastraClient {
-  if (!clients[agentId]) {
-    clients[agentId] = new MastraClient({
-      baseUrl,
-      retries: 3,
-      backoffMs: 300,
-      maxBackoffMs: 5000,
-    });
-  }
-  return clients[agentId];
-}
 
 // Get agent base URLs from environment
 function getAgentBaseUrl(agentType: 'data-processor' | 'summarizer' | 'web-search'): string {
@@ -48,40 +30,7 @@ function getAgentId(agentType: 'data-processor' | 'summarizer' | 'web-search'): 
 
 // A2A helper function to send messages to other agents using Mastra Client
 export async function sendA2AMessage(agentType: 'data-processor' | 'summarizer' | 'web-search', content: any) {
-  const baseUrl = getAgentBaseUrl(agentType);
-  const targetAgentId = getAgentId(agentType);
-  
-  try {
-    const client = getAgentClient(targetAgentId, baseUrl);
-    const a2a = client.getA2A(targetAgentId);
-    
-    // Prepare message for agent using A2A protocol
-    const messageId = crypto.randomUUID();
-    const message = typeof content === 'string' ? content : JSON.stringify(content);
-    
-    // Send A2A message using standard A2A protocol
-    const response = await a2a.sendMessage({
-      id: messageId,
-      message: {
-        role: "user",
-        parts: [{
-          type: "text",
-          text: message
-        }]
-      }
-    });
-    
-    console.log(`A2A response from ${agentType}:`, JSON.stringify(response, null, 2));
-    
-    // Return the complete A2A response to preserve artifacts and full data structure
-    return response;
-  } catch (error) {
-    console.error(`Failed to send A2A message to ${agentType}:`, error);
-    
-    // Fallback to direct HTTP if Mastra client fails
-    console.log(`Falling back to HTTP for ${agentType}...`);
-    return await sendA2AMessageHTTP(agentType, content);
-  }
+  return sendA2AMessageHTTP(agentType, content);
 }
 
 // Fallback HTTP implementation for compatibility
@@ -156,64 +105,22 @@ async function sendA2AMessageHTTP(agentType: 'data-processor' | 'summarizer' | '
 // A2A helper function to get agent card information
 export async function getAgentCard(agentType: 'data-processor' | 'summarizer' | 'web-search') {
   const baseUrl = getAgentBaseUrl(agentType);
-  const targetAgentId = getAgentId(agentType);
-  
+
   try {
-    // Try to get agent card through A2A protocol first
-    const client = getAgentClient(targetAgentId, baseUrl);
-    const a2a = client.getA2A(targetAgentId);
-    
-    return await a2a.getCard();
-  } catch (error) {
-    console.warn(`Failed to get agent card via A2A for ${agentType}, falling back to HTTP:`, error);
-    
-    // Fallback to direct HTTP for agent card discovery
-    try {
-      const response = await fetch(`${baseUrl}/api/a2a/agent`);
-      if (response.ok) {
-        return await response.json();
-      }
-      return null;
-    } catch (httpError) {
-      console.warn(`Failed to get agent card for ${agentType}:`, httpError);
-      return null;
+    const response = await fetch(`${baseUrl}/api/a2a/agent`);
+    if (response.ok) {
+      return await response.json();
     }
+    return null;
+  } catch (error) {
+    console.warn(`Failed to get agent card for ${agentType}:`, error);
+    return null;
   }
 }
 
 // A2A helper function to send tasks to other agents
 export async function sendA2ATask(agentType: 'data-processor' | 'summarizer' | 'web-search', content: any): Promise<string> {
-  const baseUrl = getAgentBaseUrl(agentType);
-  const targetAgentId = getAgentId(agentType);
-  
-  try {
-    const client = getAgentClient(targetAgentId, baseUrl);
-    const a2a = client.getA2A(targetAgentId);
-    
-    // Convert task content to message format and create task using A2A protocol
-    const message = typeof content === 'string' ? content : JSON.stringify(content);
-    const taskId = `task-${Date.now()}`;
-    
-    // Create task using A2A protocol
-    await a2a.sendMessage({
-      id: crypto.randomUUID(),
-      message: {
-        role: "user",
-        parts: [{
-          type: "text",
-          text: message
-        }]
-      }
-    });
-    
-    console.log(`A2A task created for ${agentType}:`, taskId);
-    return taskId;
-  } catch (error) {
-    console.error(`Failed to send A2A task to ${agentType}:`, error);
-    
-    // Fallback to HTTP implementation
-    return await sendA2ATaskHTTP(agentType, content);
-  }
+  return sendA2ATaskHTTP(agentType, content);
 }
 
 // Fallback HTTP task implementation

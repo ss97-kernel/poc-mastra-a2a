@@ -1,22 +1,22 @@
-FROM node:22-alpine
+FROM node:24.10.0-alpine
 
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
-COPY tsconfig.json ./
+COPY agents/data-processor/package*.json ./
+COPY agents/data-processor/tsconfig.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy source code
-COPY src ./src
+COPY agents/data-processor/src ./src
 
 # Build TypeScript
 RUN npm run build
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3002
 
 # Start the agent
-CMD ["npm", "run", "dev:mastra"]
+CMD ["npm", "start"]

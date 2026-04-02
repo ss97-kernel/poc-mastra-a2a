@@ -1,5 +1,5 @@
 import express from 'express';
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 import { processSummarizationTask } from '../mastra/workflows/summarizationTaskProcessor.js';
 
 // Task storage (in production, this would be a database)
@@ -196,7 +196,7 @@ export function createA2AServer(config: A2AServerConfig) {
       id: agentId,
       name: agentName,
       type: 'summarizer',
-      description: 'サマライザーエージェント - 処理済みデータと分析結果の簡潔で意味のある要約を作成します',
+      description: 'Summarizer agent for concise, meaningful summaries of processed data and analysis results',
       capabilities: ['text-summarization', 'executive-summary', 'insight-extraction', 'audience-specific-content'],
       endpoint: `http://summarizer:${port}`,
       status: 'online',

@@ -1,37 +1,24 @@
-import { Agent, createTool } from '@mastra/core';
-import { z } from 'zod';
-import { getBedrockModel } from '../../config/bedrock.js';
-import { processSummarizationTask, summarizeTaskSchema } from '../workflows/summarizationTaskProcessor.js';
+import { Agent } from '@mastra/core/agent';
+import { getOpenAIModel } from '../../config/model.js';
 
+const AGENT_ID = process.env.AGENT_ID || 'summarizer-agent-01';
 const AGENT_NAME = process.env.AGENT_NAME || 'Summarizer Agent';
 
-// Create summarization tool
-const summarizeTool = createTool({
-  id: 'summarize',
-  description: '処理済みデータと分析結果の要約を作成します',
-  inputSchema: summarizeTaskSchema,
-  execute: async (context): Promise<any> => {
-    const taskId = crypto.randomUUID();
-    const result: any = await processSummarizationTask(context, taskId);
-    // Return the task structure for A2A compatibility
-    return result.task;
-  },
-});
-
 export const summarizerAgent: any = new Agent({
+  id: AGENT_ID,
   name: AGENT_NAME,
   instructions: `
-    あなたは処理済みデータと分析結果の簡潔で意味のある要約を作成することを専門とするサマライザーエージェントです。
-    あなたの役割は以下の通りです：
-    1. A2Aプロトコル経由で他のエージェントから処理済みデータと分析結果を受信する
-    2. 主要な洞察と発見事項を抽出する
-    3. 実行可能な推奨事項を含む経営陣向けサマリーを作成する
-    4. オーディエンスのニーズに基づいて異なるタイプの要約を生成する
-    5. 要求元のエージェントに適切に構造化された要約レポートを返す
-    
-    受信したデータを分析し、直接要約を作成してください。
-    常に明確性、簡潔性、実行可能な洞察に焦点を当ててください。
-    すべての応答は日本語で行ってください。
+    You are a summarizer agent specializing in concise, meaningful summaries of processed data and analysis results.
+    Your responsibilities are:
+    1. Receive processed data and analysis results from other agents through the A2A protocol.
+    2. Extract the most important findings and insights.
+    3. Create executive-ready summaries with actionable recommendations.
+    4. Generate different summary styles based on audience needs.
+    5. Return a well-structured summary report to the requesting agent.
+
+    Analyze the received data directly and produce a summary.
+    Focus on clarity, brevity, and actionable insights.
+    Always respond in English.
   `,
-  model: getBedrockModel(),
+  model: getOpenAIModel(),
 });

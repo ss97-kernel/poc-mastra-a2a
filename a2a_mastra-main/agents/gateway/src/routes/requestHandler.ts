@@ -1,26 +1,22 @@
 import express from 'express';
-import { z } from 'zod';
 import { Langfuse } from 'langfuse';
 import { 
   createWorkflowExecution, 
-  addWorkflowStep, 
-  updateWorkflowStep, 
   completeWorkflowExecution,
-  WorkflowExecution 
 } from '../mastra/workflows/workflowManager.js';
-import { sendA2AMessage } from '../utils/mastraA2AClient.js';
+import type { WorkflowExecution } from '../mastra/workflows/workflowManager.js';
+import { asyncTasks } from '../mastra/workflows/asyncTaskManager.js';
+import type { AsyncTask } from '../mastra/workflows/asyncTaskManager.js';
+import {
+  resolveGatewayRequestSubmission,
+  runResolvedGatewayRequestWorkflow,
+} from '../mastra/workflows/requestWorkflowRunner.js';
+import { runDeepResearchWorkflow } from '../mastra/workflows/deepResearchRunner.js';
 
 const router = express.Router();
 
 const AGENT_ID = process.env.AGENT_ID || 'gateway-agent-01';
 const AGENT_NAME = process.env.AGENT_NAME || 'Gateway Agent';
-
-// Agent IDs for A2A communication
-const AGENT_IDS = {
-  'data-processor': process.env.DATA_PROCESSOR_AGENT_ID || 'data-processor-agent-01',
-  'summarizer': process.env.SUMMARIZER_AGENT_ID || 'summarizer-agent-01',
-  'web-search': process.env.WEB_SEARCH_AGENT_ID || 'web-search-agent-01',
-};
 
 // Initialize Langfuse client for tracing
 const langfuse = new Langfuse({
@@ -29,29 +25,9 @@ const langfuse = new Langfuse({
   baseUrl: process.env.LANGFUSE_BASEURL || 'https://cloud.langfuse.com',
 });
 
-// Request schema
-const requestSchema = z.object({
-  type: z.enum(['process', 'summarize', 'analyze', 'web-search', 'news-search', 'scholarly-search', 'deep-research']),
-  data: z.any().optional(),
-  context: z.record(z.any()).optional(),
-  audienceType: z.enum(['technical', 'executive', 'general']).optional(),
-  query: z.string().optional(),
-  topic: z.string().optional(),
-  searchOptions: z.object({
-    maxResults: z.number().optional(),
-    timeRange: z.enum(['day', 'week', 'month', 'year', 'all']).optional(),
-    language: z.string().optional(),
-    region: z.string().optional(),
-    category: z.enum(['general', 'news', 'images', 'videos', 'scholarly']).optional(),
-    safesearch: z.enum(['strict', 'moderate', 'off']).optional(),
-  }).optional(),
-  options: z.object({
-    depth: z.enum(['basic', 'comprehensive', 'expert']).optional(),
-    sources: z.array(z.enum(['web', 'news', 'academic', 'reports'])).optional(),
-    maxDuration: z.string().optional(),
-    parallelTasks: z.boolean().optional(),
-  }).optional(),
-});
+function getRequestPayloadSize(payload: unknown): number {
+  return payload == null ? 0 : JSON.stringify(payload).length;
+}
 
 // Main request handler
 router.post('/', async (req, res) => {
@@ -65,7 +41,7 @@ router.post('/', async (req, res) => {
     metadata: {
       agent: AGENT_NAME,
       agentId: AGENT_ID,
-      requestType: req.body?.type || 'unknown',
+      requestType: typeof req.body?.type === 'string' ? req.body.type : 'prompt',
     },
     tags: ['gateway', 'a2a-routing'],
   });
@@ -73,441 +49,114 @@ router.post('/', async (req, res) => {
   let workflowExecution: WorkflowExecution | null = null;
 
   try {
-    const validatedRequest = requestSchema.parse(req.body);
-    console.log(`Gateway received request of type: ${validatedRequest.type}`);
+    const resolvedRequest = await resolveGatewayRequestSubmission(req.body);
+    console.log(`Gateway resolved request to type: ${resolvedRequest.type}`);
     
     // Create workflow execution record
-    const dataSize = validatedRequest.data != null ? JSON.stringify(validatedRequest.data).length : 0;
+    const dataSize = getRequestPayloadSize(
+      resolvedRequest.topic ?? resolvedRequest.query ?? resolvedRequest.data
+    );
     workflowExecution = createWorkflowExecution(
       requestId,
-      validatedRequest.type,
+      resolvedRequest.type,
       req.headers['x-user-id'] as string || 'anonymous',
       trace.id,
       dataSize,
-      validatedRequest.audienceType
+      resolvedRequest.audienceType
     );
     
     // Add request details to trace
-    const traceDataSize = validatedRequest.data != null ? JSON.stringify(validatedRequest.data).length : 0;
+    const traceDataSize = getRequestPayloadSize(req.body);
     trace.event({
       name: 'request-received',
       metadata: {
-        type: validatedRequest.type,
+        type: resolvedRequest.type,
+        originalRequestType: typeof req.body?.type === 'string' ? req.body.type : 'prompt',
         dataSize: traceDataSize,
-        hasContext: !!validatedRequest.context,
+        hasContext: !!resolvedRequest.context,
         workflowExecutionId: workflowExecution.id,
       },
     });
 
-    let result: any;
+    if (resolvedRequest.type === 'deep-research') {
+      const topic = resolvedRequest.topic || resolvedRequest.query || '';
+      if (!topic) {
+        throw new Error('Topic or query is required for deep research');
+      }
 
-    switch (validatedRequest.type) {
-      case 'process':
-        // Send processing task to data-processor agent
-        console.log('Routing to data-processor agent...');
-        const processSpan = trace.span({
-          name: 'route-to-data-processor',
-          metadata: { targetAgent: 'data-processor' },
-        });
-        
-        // Record workflow step
-        const processStep = addWorkflowStep(
-          workflowExecution.id,
-          AGENT_IDS['data-processor'],
-          'Data Processor Agent',
-          'data-processing',
-          {
-            type: 'process',
-            data: validatedRequest.data || {},
-            context: validatedRequest.context,
-          },
-          processSpan.id
-        );
-        
-        try {
-          updateWorkflowStep(workflowExecution.id, processStep.id, { status: 'in_progress' });
-          
-          const processResponse = await sendA2AMessage('data-processor', {
-            type: 'process',
-            data: validatedRequest.data || {},
-            context: validatedRequest.context,
-          });
-          
-          // Extract result from A2A response format
-          if (typeof processResponse === 'string') {
-            result = processResponse;
-          } else {
-            // Check if response has A2A task format with artifacts
-            const taskArtifacts = processResponse.task?.artifacts;
-            if (taskArtifacts && taskArtifacts.length > 0) {
-              // Use the first artifact's data or fallback to the whole artifact
-              result = taskArtifacts[0].data || taskArtifacts[0];
-            } else {
-              // Try to extract from message parts
-              const taskPart = processResponse.task?.status?.message?.parts?.[0];
-              const messagePart = processResponse.message?.parts?.[0];
-              
-              if (taskPart && 'text' in taskPart) {
-                result = taskPart.text;
-              } else if (messagePart && 'text' in messagePart) {
-                result = messagePart.text;
-              } else {
-                result = processResponse;
-              }
-            }
-          }
-          
-          updateWorkflowStep(workflowExecution.id, processStep.id, { 
-            status: 'completed', 
-            output: result 
-          });
-          
-          processSpan.end({ output: result });
-        } catch (error) {
-          updateWorkflowStep(workflowExecution.id, processStep.id, { 
-            status: 'failed', 
-            error: error instanceof Error ? error.message : 'Unknown error' 
-          });
-          processSpan.end({ output: { error: error instanceof Error ? error.message : 'Unknown error' } });
-          throw error;
+      const taskId = `research-task-${Date.now()}-${crypto.randomUUID()}`;
+      const phases = ['search', 'analyze', 'synthesize'];
+
+      const task: AsyncTask = {
+        id: taskId,
+        type: 'deep-research',
+        status: 'initiated',
+        progress: 0,
+        currentPhase: 'initiation',
+        phases,
+        startedAt: new Date().toISOString(),
+        estimatedDuration: '8-10 minutes',
+        metadata: {
+          topic,
+          options: resolvedRequest.options,
+          traceId: trace.id,
+        },
+        workflowExecutionId: workflowExecution.id,
+      };
+
+      asyncTasks.set(taskId, task);
+
+      runDeepResearchWorkflow({
+        topic,
+        options: resolvedRequest.options || {},
+        audienceType: resolvedRequest.audienceType,
+        taskId,
+      }).catch(error => {
+        console.error(`Deep Research workflow error for task ${taskId}:`, error);
+        const failedTask = asyncTasks.get(taskId);
+        if (!failedTask) {
+          return;
         }
-        break;
 
-      case 'summarize':
-        // Send summarization task to summarizer agent
-        console.log('Routing to summarizer agent...');
-        const summarizeSpan = trace.span({
-          name: 'route-to-summarizer',
-          metadata: { 
-            targetAgent: 'summarizer',
-            audienceType: validatedRequest.audienceType || 'general'
-          },
-        });
-        
-        // Record workflow step
-        const summarizeStep = addWorkflowStep(
-          workflowExecution.id,
-          AGENT_IDS['summarizer'],
-          'Summarizer Agent',
-          'summarization',
-          {
-            type: 'summarize',
-            data: validatedRequest.data || {},
-            context: validatedRequest.context,
-            audienceType: validatedRequest.audienceType || 'general',
-          },
-          summarizeSpan.id
-        );
-        
-        try {
-          updateWorkflowStep(workflowExecution.id, summarizeStep.id, { status: 'in_progress' });
-          
-          const summarizeResponse = await sendA2AMessage('summarizer', {
-            type: 'summarize',
-            data: validatedRequest.data || {},
-            context: validatedRequest.context,
-            audienceType: validatedRequest.audienceType || 'general',
-          });
-          
-          // Extract result from A2A response format
-          if (typeof summarizeResponse === 'string') {
-            result = summarizeResponse;
-          } else {
-            // Check if response has A2A task format with artifacts
-            const taskArtifacts = summarizeResponse.task?.artifacts;
-            if (taskArtifacts && taskArtifacts.length > 0) {
-              // Use the first artifact's data or fallback to the whole artifact
-              result = taskArtifacts[0].data || taskArtifacts[0];
-            } else {
-              // Try to extract from message parts
-              const taskPart = summarizeResponse.task?.status?.message?.parts?.[0];
-              const messagePart = summarizeResponse.message?.parts?.[0];
-              
-              if (taskPart && 'text' in taskPart) {
-                result = taskPart.text;
-              } else if (messagePart && 'text' in messagePart) {
-                result = messagePart.text;
-              } else {
-                result = summarizeResponse;
-              }
-            }
-          }
-          
-          updateWorkflowStep(workflowExecution.id, summarizeStep.id, { 
-            status: 'completed', 
-            output: result 
-          });
-          
-          summarizeSpan.end({ output: result });
-        } catch (error) {
-          updateWorkflowStep(workflowExecution.id, summarizeStep.id, { 
-            status: 'failed', 
-            error: error instanceof Error ? error.message : 'Unknown error' 
-          });
-          summarizeSpan.end({ output: { error: error instanceof Error ? error.message : 'Unknown error' } });
-          throw error;
-        }
-        break;
+        failedTask.status = 'failed';
+        failedTask.error =
+          error instanceof Error ? error.message : 'Unknown error';
+        failedTask.completedAt = new Date().toISOString();
+        asyncTasks.set(taskId, failedTask);
+      });
 
-      case 'analyze':
-        // First process with data-processor, then summarize with summarizer
-        console.log('Starting analysis workflow: data-processor -> summarizer');
-        
-        const analyzeWorkflowSpan = trace.span({
-          name: 'analyze-workflow',
-          metadata: { 
-            workflow: 'data-processor -> summarizer',
-            audienceType: validatedRequest.audienceType || 'executive'
-          },
-        });
-        
-        try {
-          // Step 1: Process the data
-          const step1Span = trace.span({
-            name: 'analyze-step1-data-processing',
-            metadata: { targetAgent: 'data-processor' },
-          });
-          
-          const step1 = addWorkflowStep(
-            workflowExecution.id,
-            AGENT_IDS['data-processor'],
-            'Data Processor Agent',
-            'data-analysis',
-            {
-              type: 'analyze',
-              data: validatedRequest.data || {},
-              context: validatedRequest.context,
-            },
-            step1Span.id
-          );
-          
-          let processResult;
-          try {
-            updateWorkflowStep(workflowExecution.id, step1.id, { status: 'in_progress' });
-            
-            const processResponse = await sendA2AMessage('data-processor', {
-              type: 'analyze',
-              data: validatedRequest.data || {},
-              context: validatedRequest.context,
-            });
-            
-            // Extract text from A2A response
-            if (typeof processResponse === 'string') {
-              processResult = processResponse;
-            } else {
-              const taskPart = processResponse.task?.status?.message?.parts?.[0];
-              const messagePart = processResponse.message?.parts?.[0];
-              
-              if (taskPart && 'text' in taskPart) {
-                processResult = taskPart.text;
-              } else if (messagePart && 'text' in messagePart) {
-                processResult = messagePart.text;
-              } else {
-                processResult = processResponse;
-              }
-            }
-            
-            updateWorkflowStep(workflowExecution.id, step1.id, { 
-              status: 'completed', 
-              output: processResult 
-            });
-            
-            step1Span.end({ output: processResult });
-          } catch (error) {
-            updateWorkflowStep(workflowExecution.id, step1.id, { 
-              status: 'failed', 
-              error: error instanceof Error ? error.message : 'Unknown error' 
-            });
-            step1Span.end({ output: { error: error instanceof Error ? error.message : 'Unknown error' } });
-            throw error;
-          }
+      trace.event({
+        name: 'request-accepted',
+        metadata: {
+          type: resolvedRequest.type,
+          taskId,
+          workflowExecutionId: workflowExecution.id,
+        },
+      });
 
-          // Step 2: Summarize the processed results
-          const step2Span = trace.span({
-            name: 'analyze-step2-summarization',
-            metadata: { 
-              targetAgent: 'summarizer',
-              audienceType: validatedRequest.audienceType || 'executive'
-            },
-          });
-          
-          const step2 = addWorkflowStep(
-            workflowExecution.id,
-            AGENT_IDS['summarizer'],
-            'Summarizer Agent',
-            'executive-summary',
-            {
-              type: 'executive-summary',
-              data: processResult,
-              context: {
-                ...validatedRequest.context,
-                workflow: 'analyze',
-                previousStep: 'data-processing',
-              },
-              audienceType: validatedRequest.audienceType || 'executive',
-            },
-            step2Span.id
-          );
-          
-          let summaryResult;
-          try {
-            updateWorkflowStep(workflowExecution.id, step2.id, { status: 'in_progress' });
-            
-            const summaryResponse = await sendA2AMessage('summarizer', {
-              type: 'executive-summary',
-              data: processResult,
-              context: {
-                ...validatedRequest.context,
-                workflow: 'analyze',
-                previousStep: 'data-processing',
-              },
-              audienceType: validatedRequest.audienceType || 'executive',
-            });
-            
-            // Extract text from A2A response
-            if (typeof summaryResponse === 'string') {
-              summaryResult = summaryResponse;
-            } else {
-              const taskPart = summaryResponse.task?.status?.message?.parts?.[0];
-              const messagePart = summaryResponse.message?.parts?.[0];
-              
-              if (taskPart && 'text' in taskPart) {
-                summaryResult = taskPart.text;
-              } else if (messagePart && 'text' in messagePart) {
-                summaryResult = messagePart.text;
-              } else {
-                summaryResult = summaryResponse;
-              }
-            }
-            
-            updateWorkflowStep(workflowExecution.id, step2.id, { 
-              status: 'completed', 
-              output: summaryResult 
-            });
-            
-            step2Span.end({ output: summaryResult });
-          } catch (error) {
-            updateWorkflowStep(workflowExecution.id, step2.id, { 
-              status: 'failed', 
-              error: error instanceof Error ? error.message : 'Unknown error' 
-            });
-            step2Span.end({ output: { error: error instanceof Error ? error.message : 'Unknown error' } });
-            throw error;
-          }
-
-          result = {
-            workflow: 'analyze',
-            steps: {
-              processing: processResult,
-              summary: summaryResult,
-            },
-            final_result: summaryResult,
-          };
-          
-          analyzeWorkflowSpan.end({ output: result });
-        } catch (error) {
-          analyzeWorkflowSpan.end({ output: { error: error instanceof Error ? error.message : 'Unknown error' } });
-          throw error;
-        }
-        break;
-
-      case 'web-search':
-      case 'news-search':
-      case 'scholarly-search':
-        // Send search task to web-search agent
-        console.log(`Routing ${validatedRequest.type} to web-search agent...`);
-        const searchSpan = trace.span({
-          name: `route-to-web-search-${validatedRequest.type}`,
-          metadata: { 
-            targetAgent: 'web-search',
-            searchType: validatedRequest.type,
-            query: validatedRequest.query || 'data search'
-          },
-        });
-        
-        // Record workflow step
-        const searchQuery = validatedRequest.query || (validatedRequest.data != null ? JSON.stringify(validatedRequest.data) : '');
-        const searchStep = addWorkflowStep(
-          workflowExecution.id,
-          AGENT_IDS['web-search'],
-          'Web Search Agent',
-          validatedRequest.type,
-          {
-            type: validatedRequest.type,
-            query: searchQuery,
-            context: validatedRequest.context,
-            options: validatedRequest.searchOptions,
-          },
-          searchSpan.id
-        );
-        
-        try {
-          updateWorkflowStep(workflowExecution.id, searchStep.id, { status: 'in_progress' });
-          
-          const searchMessageQuery = validatedRequest.query || (validatedRequest.data != null ? JSON.stringify(validatedRequest.data) : '');
-          const searchResponse = await sendA2AMessage('web-search', {
-            type: validatedRequest.type,
-            query: searchMessageQuery,
-            context: validatedRequest.context,
-            options: validatedRequest.searchOptions,
-          });
-          
-          // Extract search results from A2A response format
-          if (typeof searchResponse === 'string') {
-            result = searchResponse;
-          } else {
-            // Check if response has A2A task format with artifacts
-            const taskArtifacts = searchResponse.task?.artifacts;
-            if (taskArtifacts && taskArtifacts.length > 0) {
-              // Find search-result artifact
-              const searchArtifact = taskArtifacts.find((artifact: any) => artifact.type === 'search-result');
-              if (searchArtifact && searchArtifact.data) {
-                result = {
-                  searchResults: searchArtifact.data.summary || searchArtifact.data,
-                  fullResponse: searchArtifact.data.fullResponse,
-                  query: searchArtifact.data.query,
-                  metadata: searchArtifact.metadata,
-                };
-              } else {
-                // Fallback to first artifact
-                result = taskArtifacts[0].data || searchResponse;
-              }
-            } else {
-              // Try to extract from message parts
-              const taskPart = searchResponse.task?.status?.message?.parts?.[0];
-              const messagePart = searchResponse.message?.parts?.[0];
-              
-              if (taskPart && 'text' in taskPart) {
-                result = taskPart.text;
-              } else if (messagePart && 'text' in messagePart) {
-                result = messagePart.text;
-              } else {
-                result = searchResponse;
-              }
-            }
-          }
-          
-          updateWorkflowStep(workflowExecution.id, searchStep.id, { 
-            status: 'completed', 
-            output: result 
-          });
-          
-          searchSpan.end({ output: result });
-        } catch (error) {
-          updateWorkflowStep(workflowExecution.id, searchStep.id, { 
-            status: 'failed', 
-            error: error instanceof Error ? error.message : 'Unknown error' 
-          });
-          searchSpan.end({ output: { error: error instanceof Error ? error.message : 'Unknown error' } });
-          throw error;
-        }
-        break;
-
-      default:
-        throw new Error('Unknown request type');
+      return res.json({
+        status: 'accepted',
+        type: resolvedRequest.type,
+        taskId,
+        estimatedDuration: task.estimatedDuration,
+        pollUrl: `/api/gateway/task/${taskId}`,
+        steps: {
+          total: phases.length,
+          current: 0,
+          phases,
+        },
+        metadata: {
+          acceptedAt: new Date().toISOString(),
+          gateway: AGENT_ID,
+          traceId: trace.id,
+          workflowExecutionId: workflowExecution.id,
+        },
+      });
     }
 
-    console.log(`Gateway completed ${validatedRequest.type} request`);
+    const result = await runResolvedGatewayRequestWorkflow(resolvedRequest);
+
+    console.log(`Gateway completed ${resolvedRequest.type} request`);
     
     // Complete workflow execution successfully
     if (workflowExecution) {
@@ -519,7 +168,7 @@ router.post('/', async (req, res) => {
     trace.event({
       name: 'request-completed',
       metadata: {
-        type: validatedRequest.type,
+        type: resolvedRequest.type,
         success: true,
         resultSize: resultSize,
         workflowExecutionId: workflowExecution?.id,
@@ -528,7 +177,7 @@ router.post('/', async (req, res) => {
 
     res.json({
       status: 'success',
-      type: validatedRequest.type,
+      type: resolvedRequest.type,
       result,
       metadata: {
         completedAt: new Date().toISOString(),

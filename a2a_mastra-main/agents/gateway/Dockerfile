@@ -1,22 +1,22 @@
-FROM node:22-alpine
+FROM node:24.10.0-alpine
 
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
-COPY tsconfig.json ./
+COPY agents/gateway/package*.json ./
+COPY agents/gateway/tsconfig.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy source code
-COPY src ./src
+COPY agents/gateway/src ./src
 
 # Build TypeScript
 RUN npm run build
 
 # Expose port
-EXPOSE 3000
+EXPOSE 3001
 
 # Start the agent
 CMD ["npm", "start"]

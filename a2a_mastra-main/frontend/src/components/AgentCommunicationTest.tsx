@@ -36,8 +36,8 @@ const SAMPLE_MESSAGES = {
     '{ "type": "executive-summary", "data": "Complex business data...", "audienceType": "executive" }',
   ],
   'web-search': [
-    '{ "type": "web-search", "query": "TypeScript 最新情報", "options": { "maxResults": 5 } }',
-    '{ "type": "news-search", "query": "人工知能 市場動向", "options": { "timeRange": "week" } }',
+    '{ "type": "web-search", "query": "TypeScript latest features", "options": { "maxResults": 5 } }',
+    '{ "type": "news-search", "query": "AI market trends", "options": { "timeRange": "week" } }',
     '{ "type": "scholarly-search", "query": "machine learning transformer", "options": { "language": "en" } }',
   ],
 }
@@ -140,16 +140,16 @@ export function AgentCommunicationTest() {
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <MessageSquare className="h-5 w-5" />
-          エージェント間通信テスト
+          Inter-Agent Communication Test
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="text-sm font-medium mb-2 block">対象エージェント</label>
+            <label className="text-sm font-medium mb-2 block">Target Agent</label>
             <Select value={selectedAgent} onValueChange={setSelectedAgent}>
               <SelectTrigger>
-                <SelectValue placeholder="エージェントを選択" />
+                <SelectValue placeholder="Select an agent" />
               </SelectTrigger>
               <SelectContent>
                 {AGENT_OPTIONS.map((option) => (
@@ -163,7 +163,7 @@ export function AgentCommunicationTest() {
           
           {selectedAgent && (
             <div>
-              <label className="text-sm font-medium mb-2 block">サンプルメッセージ</label>
+              <label className="text-sm font-medium mb-2 block">Sample Messages</label>
               <div className="flex gap-2">
                 {SAMPLE_MESSAGES[selectedAgent as keyof typeof SAMPLE_MESSAGES]?.map((_, index) => (
                   <Button
@@ -172,7 +172,7 @@ export function AgentCommunicationTest() {
                     size="sm"
                     onClick={() => loadSampleMessage(selectedAgent, index)}
                   >
-                    サンプル {index + 1}
+                    Sample {index + 1}
                   </Button>
                 ))}
               </div>
@@ -181,11 +181,11 @@ export function AgentCommunicationTest() {
         </div>
 
         <div>
-          <label className="text-sm font-medium mb-2 block">メッセージ (JSON)</label>
+          <label className="text-sm font-medium mb-2 block">Message (JSON)</label>
           <Textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="JSON形式でメッセージを入力してください..."
+            placeholder="Enter a JSON message..."
             rows={4}
             className="font-mono text-sm"
           />
@@ -197,12 +197,12 @@ export function AgentCommunicationTest() {
           className="w-full"
         >
           <Send className="h-4 w-4 mr-2" />
-          A2Aメッセージを送信
+          Send A2A Message
         </Button>
 
         {messages.length > 0 && (
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">通信履歴</h3>
+            <h3 className="text-sm font-medium">Communication History</h3>
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {messages.map((msg) => (
                 <Card key={msg.id} className="border-l-4 border-l-blue-500">
@@ -227,7 +227,7 @@ export function AgentCommunicationTest() {
                     
                     <div className="space-y-2">
                       <div>
-                        <span className="text-xs font-medium text-muted-foreground">送信メッセージ:</span>
+                        <span className="text-xs font-medium text-muted-foreground">Sent Message:</span>
                         <pre className="text-xs bg-gray-50 p-2 rounded mt-1 overflow-x-auto">
                           {msg.message}
                         </pre>
@@ -236,7 +236,7 @@ export function AgentCommunicationTest() {
                       {msg.response !== undefined && (
                         <div>
                           <span className="text-xs font-medium text-muted-foreground">
-                            {msg.status === 'failed' ? 'エラー:' : 'レスポンス:'}
+                            {msg.status === 'failed' ? 'Error:' : 'Response:'}
                           </span>
                           <pre className={cn(
                             "text-xs p-2 rounded mt-1 overflow-x-auto",
@@ -255,13 +255,13 @@ export function AgentCommunicationTest() {
         )}
 
         <div className="p-3 bg-blue-50 rounded-md">
-          <h4 className="text-sm font-medium text-blue-900 mb-2">A2A通信の流れ</h4>
+          <h4 className="text-sm font-medium text-blue-900 mb-2">A2A Communication Flow</h4>
           <div className="text-xs text-blue-700 space-y-1">
-            <div>1. Gateway Agentがリクエストを受信</div>
-            <div>2. A2A sendMessage()で対象エージェントにメッセージ送信</div>
-            <div>3. 対象エージェントがタスクを処理</div>
-            <div>4. A2A getTask()でタスク結果を取得</div>
-            <div>5. Gateway Agentが結果をクライアントに返却</div>
+            <div>1. The Gateway Agent receives the request.</div>
+            <div>2. It sends a message to the target agent with A2A `sendMessage()`.</div>
+            <div>3. The target agent processes the task.</div>
+            <div>4. The gateway retrieves the result with A2A `getTask()`.</div>
+            <div>5. The Gateway Agent returns the result to the client.</div>
           </div>
         </div>
       </CardContent>

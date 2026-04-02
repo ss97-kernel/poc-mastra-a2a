@@ -6,7 +6,7 @@ import { Bot, Database, FileText, Search, ArrowDown, Loader2, CheckCircle2 } fro
 import { cn } from "@/lib/utils"
 // import { WorkflowExecution, WorkflowStep } from "@shared/types"
 
-// 一時的に型定義をローカルに定義
+// Define these types locally for now.
 interface WorkflowStep {
   id: string;
   stepNumber: number;
@@ -74,7 +74,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
   const [realWorkflowData, setRealWorkflowData] = useState<WorkflowExecution | null>(null)
   const [taskData, setTaskData] = useState<Record<string, unknown> | null>(null)
 
-  // Deep Researchタスクデータを取得する関数
+  // Fetch task data for Deep Research.
   const fetchTaskData = async (taskId: string) => {
     console.log('🔍 Fetching Deep Research task data for task ID:', taskId)
     try {
@@ -84,41 +84,30 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
         const taskData = await response.json()
         console.log('✅ Task data received:', taskData)
         
-        // 新しいA2A形式のレスポンスを処理
+        // Handle the newer A2A response format.
         if (taskData.task) {
-          // 進捗とフェーズ情報を抽出
+          // Extract progress and phase information.
           let extractedProgress, extractedPhase;
           
-          // artifactsから進捗情報を抽出
+          // Extract progress information from artifacts.
           const workflowArtifact = taskData.task.artifacts?.find((artifact: {type: string, metadata?: {progress?: number, currentPhase?: string}}) => artifact.type === 'workflow-result');
           if (workflowArtifact?.metadata) {
             extractedProgress = workflowArtifact.metadata.progress;
             extractedPhase = workflowArtifact.metadata.currentPhase;
           }
           
-          // メッセージから進捗情報を抽出 (フォールバック)
+          // Extract progress information from the message as a fallback.
           if ((extractedProgress === undefined || extractedPhase === undefined) && taskData.task.status?.message?.parts?.[0]?.text) {
             const messageText = taskData.task.status.message.parts[0].text;
             const progressMatch = messageText.match(/(\d+)%/);
             
-            // 日本語と英語のフェーズ名に対応
-            const phaseMatch = messageText.match(/(search|analyze|synthesize|Web検索|データ分析|結果統合)/);
+            const phaseMatch = messageText.match(/(search|analyze|synthesize)/);
             
             if (progressMatch && extractedProgress === undefined) {
               extractedProgress = parseInt(progressMatch[1]);
             }
             if (phaseMatch && extractedPhase === undefined) {
-              const phase = phaseMatch[1];
-              // 日本語フェーズ名を英語にマップ
-              const phaseMap: Record<string, string> = {
-                'Web検索フェーズ': 'search',
-                'Web検索': 'search',
-                'データ分析フェーズ': 'analyze', 
-                'データ分析': 'analyze',
-                '結果統合フェーズ': 'synthesize',
-                '結果統合': 'synthesize'
-              };
-              extractedPhase = phaseMap[phase] || phase;
+              extractedPhase = phaseMatch[1];
             }
           }
           
@@ -130,11 +119,11 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
               message: taskData.task.status.message?.parts?.[0]?.text || 'Processing...'
             },
             artifacts: taskData.task.artifacts || [],
-            // 結果を抽出
+            // Extract result data.
             result: taskData.task.artifacts && taskData.task.artifacts.length > 0 ? 
               taskData.task.artifacts.find((artifact: {type: string, data?: unknown}) => artifact.type === 'workflow-result')?.data :
               null,
-            // 進捗情報を抽出
+            // Extract progress data.
             progress: extractedProgress,
             currentPhase: extractedPhase
           }
@@ -146,7 +135,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
           setTaskData(processedTaskData)
           return processedTaskData
         } else {
-          // 従来形式のフォールバック
+          // Fallback for the legacy response format.
           setTaskData(taskData)
           return taskData
         }
@@ -159,7 +148,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
     return null
   }
 
-  // 実際のワークフローデータを取得する関数
+  // Fetch real workflow execution data.
   const fetchWorkflowData = async (executionId: string) => {
     console.log('🔍 Fetching workflow data for execution ID:', executionId)
     try {
@@ -180,24 +169,24 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
     return null
   }
 
-  // WorkflowStepをA2AStepに変換する関数
+  // Convert a WorkflowStep into an A2AStep.
   const convertWorkflowStepToA2AStep = (workflowStep: WorkflowStep): A2AStep => {
-    // エージェント名からA2AStepのagent型にマッピング
+    // Map the agent name to the A2AStep agent type.
     const getAgentType = (agentName: string): 'gateway' | 'data-processor' | 'summarizer' | 'web-search' => {
       if (agentName.includes('gateway')) return 'gateway'
       if (agentName.includes('data-processor')) return 'data-processor'
       if (agentName.includes('summarizer')) return 'summarizer'
       if (agentName.includes('web-search')) return 'web-search'
-      return 'gateway' // デフォルト
+      return 'gateway'
     }
 
-    // 操作からアクション型にマッピング
+    // Map the workflow operation to the A2A action type.
     const getActionType = (operation: string): 'routing' | 'processing' | 'summarizing' | 'searching' | 'responding' => {
       if (operation.includes('routing') || operation.includes('route')) return 'routing'
       if (operation.includes('process') || operation.includes('analyzing')) return 'processing'
       if (operation.includes('summariz')) return 'summarizing'
       if (operation.includes('search')) return 'searching'
-      return 'responding' // デフォルト
+      return 'responding'
     }
 
     return {
@@ -253,20 +242,20 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
   useEffect(() => {
     console.log('🚀 A2AVisualization useEffect triggered', { isActive, taskType, workflowExecutionId, taskId })
     
-    // Deep Researchの場合は異なる表示ロジックを使用
+    // Deep Research uses a different visualization path.
     if (taskType === 'deep-research' && taskId) {
       console.log('🔬 Deep Research mode - using task polling visualization')
       
-      // Deep Researchのフェーズに基づくステップ表示
+      // Build the Deep Research phase view.
       const generateDeepResearchSteps = (progress: number, phase: string, taskData?: Record<string, unknown>) => {
         const phases = ['search', 'analyze', 'synthesize']
         const phaseNames = {
-          'search': 'Web検索フェーズ',
-          'analyze': 'データ分析フェーズ', 
-          'synthesize': '結果統合フェーズ'
+          'search': 'Web Search Phase',
+          'analyze': 'Data Analysis Phase',
+          'synthesize': 'Synthesis Phase'
         }
         
-        // タスクが完了している場合は進捗とフェーズを更新
+        // Update progress and phase if the task has already completed.
         let actualProgress = progress
         let actualPhase = phase
         
@@ -285,14 +274,13 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
         
         return phases.map((p, index) => {
           let status: 'pending' | 'active' | 'completed'
-          // より正確な進捗ベースのステータス判定
+          // Determine status from phase and progress.
           if (actualPhase === 'completed' || actualProgress === 100) {
             status = 'completed'
           } else if (actualPhase === p) {
             status = 'active'
           } else {
-            // 進捗率ベースでステータスを判定
-            const phaseThresholds = [33, 66, 95] // search, analyze, synthesize
+            const phaseThresholds = [33, 66, 95]
             if (actualProgress > phaseThresholds[index]) {
               status = 'completed'
             } else if (actualProgress > (index > 0 ? phaseThresholds[index - 1] : 0)) {
@@ -311,7 +299,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                    p === 'analyze' ? 'processing' as const :
                    'summarizing' as const,
             status,
-            message: `${phaseNames[p as keyof typeof phaseNames]} ${status === 'active' ? `(${actualProgress}%)` : status === 'completed' ? '完了' : '待機中'}`,
+            message: `${phaseNames[p as keyof typeof phaseNames]} ${status === 'active' ? `(${actualProgress}%)` : status === 'completed' ? 'Complete' : 'Waiting'}`,
             timestamp: Date.now() - (3 - index) * 1000,
             details: taskData && status === 'completed' ? {
               request: `${p} phase request`,
@@ -324,7 +312,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
         })
       }
       
-      // 進捗情報を決定 - taskDataから取得するかtaskProgressから取得
+      // Determine progress from taskData or taskProgress.
       let currentProgress = taskProgress?.progress || 0
       let currentPhase = taskProgress?.phase || 'search'
       
@@ -346,11 +334,11 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
       const steps = generateDeepResearchSteps(currentProgress, currentPhase, taskData || undefined)
       setSteps(steps)
       
-      // タスクデータを定期的に取得
+      // Poll task data while the task is active.
       if (isActive) {
         const interval = setInterval(async () => {
           const data = await fetchTaskData(taskId)
-          // タスクが完了した場合はポーリング停止
+          // Stop polling once the task completes.
           if (data && (
             (data.status && (data.status as {state: string}).state === 'completed') ||
             (data.progress !== undefined && data.progress === 100) ||
@@ -358,8 +346,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
           )) {
             console.log('🛑 Task completed - stopping polling')
             clearInterval(interval)
-            // isActiveをfalseに設定して完了状態に移行
-            return true // この戻り値でポーリング停止を通知
+            return true
           }
           return false
         }, 5000)
@@ -370,7 +357,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
       return
     }
     
-    // workflowExecutionIdがある場合は常に表示（完了後も表示し続ける）
+    // Keep the view visible when workflowExecutionId exists, even after completion.
     if (!isActive && !workflowExecutionId) {
       console.log('❌ Early return: inactive and no workflowExecutionId')
       setSteps([])
@@ -378,7 +365,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
       return
     }
 
-    // 実際のworkflowExecutionIdが提供されている場合のみ処理
+    // Process real workflow data only when a workflowExecutionId exists.
     if (workflowExecutionId) {
       console.log('🔄 Fetching real workflow data')
       
@@ -387,18 +374,18 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
           const workflowData = await fetchWorkflowData(workflowExecutionId)
           if (workflowData && workflowData.steps.length > 0) {
             console.log('✅ Converting real workflow steps to A2A steps')
-            // 実際のワークフローステップを使用
+            // Render the actual workflow steps.
             const realSteps = workflowData.steps.map(convertWorkflowStepToA2AStep)
             console.log('📋 Real steps converted:', realSteps)
             setSteps(realSteps)
             
-            // ワークフローが完了していない場合は、定期的に更新
+            // Poll while the workflow is still running.
             if (workflowData.status === 'in_progress' || workflowData.status === 'pending') {
               console.log('⏳ Workflow in progress, will poll for updates')
-              return true // ポーリング続行
+              return true
             } else {
               console.log('✅ Workflow completed')
-              return false // ポーリング停止
+              return false
             }
           } else {
             console.log('⚠️ No workflow data or steps found')
@@ -412,10 +399,10 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
         }
       }
 
-      // 初回データ取得
+      // Load the initial data.
       loadWorkflowData().then((shouldContinuePolling) => {
         if (shouldContinuePolling) {
-          // ワークフローが完了していない場合、2秒ごとにポーリング
+          // Poll every 2 seconds while the workflow is running.
           const pollInterval = setInterval(async () => {
             const continuePolling = await loadWorkflowData()
             if (!continuePolling) {
@@ -423,20 +410,20 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
             }
           }, 2000)
 
-          // クリーンアップ用に返す
+          // Return a cleanup function.
           return () => clearInterval(pollInterval)
         }
       })
 
     } else if (isActive && taskType) {
       console.log('📝 Showing loading state while waiting for workflowExecutionId')
-      // workflowExecutionIdがまだない場合は、ローディング中を示すプレースホルダー
+      // Show a placeholder until workflowExecutionId is available.
       setSteps([{
         id: 'loading',
         agent: 'gateway',
         action: 'routing',
         status: 'active',
-        message: 'A2A通信を開始しています...',
+        message: 'Starting A2A communication...',
         timestamp: Date.now()
       }])
     } else {
@@ -461,7 +448,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
     <Card className="h-fit">
       <CardHeader>
         <CardTitle className="text-sm">
-          {taskType === 'deep-research' ? 'Deep Research 実行状況' : 'A2A通信フロー'}
+          {taskType === 'deep-research' ? 'Deep Research Progress' : 'A2A Communication Flow'}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -469,8 +456,8 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
           <div className="space-y-4">
             <div className="text-center text-sm text-muted-foreground py-4">
               {taskType === 'deep-research' ? 
-                'Deep Research実行時に進捗状況が表示されます' : 
-                'タスク実行時にA2A通信フローが表示されます'
+                'Deep Research progress will appear here while the task is running.' :
+                'The A2A communication flow will appear here while a task is running.'
               }
             </div>
           </div>
@@ -531,12 +518,12 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                 <div className="flex items-center gap-2 text-sm text-blue-700">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="font-medium">
-                    {taskType === 'process' && 'データ処理中...'}
-                    {taskType === 'summarize' && '要約作成中...'}
-                    {taskType === 'analyze' && '分析ワークフロー実行中...'}
-                    {taskType === 'web-search' && 'Web検索実行中...'}
-                    {taskType === 'news-search' && 'ニュース検索実行中...'}
-                    {taskType === 'scholarly-search' && '学術検索実行中...'}
+                    {taskType === 'process' && 'Processing data...'}
+                    {taskType === 'summarize' && 'Generating summary...'}
+                    {taskType === 'analyze' && 'Running analysis workflow...'}
+                    {taskType === 'web-search' && 'Running web search...'}
+                    {taskType === 'news-search' && 'Running news search...'}
+                    {taskType === 'scholarly-search' && 'Running scholarly search...'}
                   </span>
                 </div>
               </div>
@@ -545,12 +532,12 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                 <div className="flex items-center gap-2 text-sm text-green-700">
                   <CheckCircle2 className="h-4 w-4" />
                   <span className="font-medium">
-                    {taskType === 'process' && 'データ処理完了'}
-                    {taskType === 'summarize' && '要約作成完了'}
-                    {taskType === 'analyze' && '分析ワークフロー完了'}
-                    {taskType === 'web-search' && 'Web検索完了'}
-                    {taskType === 'news-search' && 'ニュース検索完了'}
-                    {taskType === 'scholarly-search' && '学術検索完了'}
+                    {taskType === 'process' && 'Data processing complete'}
+                    {taskType === 'summarize' && 'Summary complete'}
+                    {taskType === 'analyze' && 'Analysis workflow complete'}
+                    {taskType === 'web-search' && 'Web search complete'}
+                    {taskType === 'news-search' && 'News search complete'}
+                    {taskType === 'scholarly-search' && 'Scholarly search complete'}
                   </span>
                 </div>
               </div>
@@ -558,36 +545,36 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
             
             <div className="p-3 bg-gray-50 rounded-md">
               <div className="text-xs text-gray-600 space-y-1">
-                <div className="font-medium">📄 ステップ詳細を見るには:</div>
-                <div>• 完了したステップ（緑色）をクリック</div>
-                <div>• リクエスト・レスポンスの詳細を確認</div>
-                <div>• A2Aプロトコルの通信内容を体験</div>
+                <div className="font-medium">View step details:</div>
+                <div>Click any completed step in green.</div>
+                <div>Inspect the request and response details.</div>
+                <div>Review the A2A protocol traffic for that step.</div>
                 {realWorkflowData && (
-                  <div className="text-purple-600 font-medium">• 実際の実行履歴データを表示中</div>
+                  <div className="text-purple-600 font-medium">Showing real execution history data.</div>
                 )}
                 {!realWorkflowData && workflowExecutionId && (
-                  <div className="text-orange-600">• ワークフローデータの取得を試行中</div>
+                  <div className="text-orange-600">Attempting to load workflow data.</div>
                 )}
               </div>
             </div>
           </div>
         )}
 
-        {/* Deep Research用の進捗表示 */}
+        {/* Deep Research progress view */}
         {taskType === 'deep-research' && (isActive || taskId) && (
           <div className="mt-4 space-y-3">
-            {/* 実際のタスクデータから進捗状況を判定 */}
+            {/* Determine progress from task data when available. */}
             {(() => {
               const actualProgress = taskData?.progress !== undefined ? taskData.progress as number : (taskProgress?.progress || 0)
               const actualPhase = taskData?.currentPhase || taskProgress?.phase || 'search'
               
-              // デバッグ情報をログ出力
+              // Log debug information.
               console.log('🔍 Complete check - actualProgress:', actualProgress)
               console.log('🔍 Complete check - actualPhase:', actualPhase)
               console.log('🔍 Complete check - taskData:', taskData)
               console.log('🔍 Complete check - taskData.status:', taskData?.status)
               
-              // より確実な完了判定ロジック
+              // Use multiple signals to determine whether the task has completed.
               const taskStatus = taskData?.status as {state: string} | undefined
               const statusCompleted = taskStatus?.state === 'completed'
               const progressCompleted = actualProgress === 100
@@ -598,7 +585,6 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
               console.log('🔍 Complete check - progressCompleted:', progressCompleted)
               console.log('🔍 Complete check - phaseCompleted:', phaseCompleted)
               
-              // Deep Researchタスクが完了しているかを複数の条件で確認
               const isCompleted = statusCompleted || progressCompleted || phaseCompleted
               console.log('🔍 Complete check - isCompleted:', isCompleted)
               
@@ -607,10 +593,10 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                   <div className="p-3 bg-green-50 rounded-md">
                     <div className="flex items-center gap-2 text-sm text-green-700 mb-2">
                       <CheckCircle2 className="h-4 w-4" />
-                      <span className="font-medium">Deep Research完了! (100%)</span>
+                      <span className="font-medium">Deep Research complete (100%)</span>
                     </div>
                     <div className="text-xs text-green-600">
-                      全ての調査フェーズが完了しました
+                      All research phases have completed.
                     </div>
                     <div className="w-full bg-green-200 rounded-full h-2 mt-2">
                       <div className="bg-green-600 h-2 rounded-full w-full"></div>
@@ -622,13 +608,13 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                   <div className="p-3 bg-blue-50 rounded-md">
                     <div className="flex items-center gap-2 text-sm text-blue-700 mb-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="font-medium">Deep Research実行中... ({actualProgress}%)</span>
+                      <span className="font-medium">Running Deep Research... ({actualProgress}%)</span>
                     </div>
                     <div className="text-xs text-blue-600">
-                      現在のフェーズ: {actualPhase === 'search' ? 'Web検索' : 
-                                    actualPhase === 'analyze' ? 'データ分析' :
-                                    actualPhase === 'synthesize' ? '結果統合' : 
-                                    actualPhase === 'completed' ? '完了' : String(actualPhase)}
+                      Current phase: {actualPhase === 'search' ? 'Web Search' :
+                                      actualPhase === 'analyze' ? 'Data Analysis' :
+                                      actualPhase === 'synthesize' ? 'Synthesis' :
+                                      actualPhase === 'completed' ? 'Completed' : String(actualPhase)}
                     </div>
                     <div className="w-full bg-blue-200 rounded-full h-2 mt-2">
                       <div 
@@ -643,12 +629,12 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
             
             <div className="p-3 bg-gray-50 rounded-md">
               <div className="text-xs text-gray-600 space-y-1">
-                <div className="font-medium">🔍 Deep Research詳細:</div>
-                <div>• マルチエージェント協調による深い調査</div>
-                <div>• Web検索 → データ分析 → 結果統合の3段階</div>
-                <div>• 非同期タスク処理によるリアルタイム進捗表示</div>
+                <div className="font-medium">Deep Research details:</div>
+                <div>Multi-agent collaboration for long-running research.</div>
+                <div>Three phases: Web Search, Data Analysis, and Synthesis.</div>
+                <div>Real-time progress updates through async task polling.</div>
                 {taskId && (
-                  <div className="text-blue-600 font-medium">• タスクID: {taskId}</div>
+                  <div className="text-blue-600 font-medium">Task ID: {taskId}</div>
                 )}
               </div>
             </div>
@@ -684,7 +670,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                 {selectedStep.details?.request !== undefined && (
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                      📤 リクエスト
+                      Request
                       <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
                         {selectedStep.details.method} {selectedStep.details.endpoint}
                       </span>
@@ -701,7 +687,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                 {selectedStep.details?.response !== undefined && (
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                      📥 レスポンス
+                      Response
                       {selectedStep.details.duration && (
                         <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
                           {selectedStep.details.duration}ms
@@ -718,26 +704,26 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                 
                 {/* Step Info */}
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">📊 ステップ情報</h4>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">Step Information</h4>
                   <div className="bg-blue-50 p-4 rounded-md">
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <span className="font-medium text-blue-700">エージェント:</span>
+                        <span className="font-medium text-blue-700">Agent:</span>
                         <div>{getAgentName(selectedStep.agent)}</div>
                       </div>
                       <div>
-                        <span className="font-medium text-blue-700">アクション:</span>
+                        <span className="font-medium text-blue-700">Action:</span>
                         <div>{selectedStep.action}</div>
                       </div>
                       <div>
-                        <span className="font-medium text-blue-700">ステータス:</span>
+                        <span className="font-medium text-blue-700">Status:</span>
                         <div className="flex items-center gap-1">
                           {getStatusIcon(selectedStep.status)}
                           {selectedStep.status}
                         </div>
                       </div>
                       <div>
-                        <span className="font-medium text-blue-700">時刻:</span>
+                        <span className="font-medium text-blue-700">Time:</span>
                         <div>{new Date(selectedStep.timestamp).toLocaleTimeString()}</div>
                       </div>
                     </div>
@@ -747,24 +733,24 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                 {/* Real Workflow Info */}
                 {realWorkflowData && (
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-700 mb-2">🔄 実際のワークフロー情報</h4>
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">Workflow Execution Details</h4>
                     <div className="bg-purple-50 p-4 rounded-md text-xs space-y-2">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <span className="font-medium text-purple-700">ワークフローID:</span>
+                          <span className="font-medium text-purple-700">Workflow ID:</span>
                           <div className="text-purple-600">{realWorkflowData.id}</div>
                         </div>
                         <div>
-                          <span className="font-medium text-purple-700">実行タイプ:</span>
+                          <span className="font-medium text-purple-700">Execution Type:</span>
                           <div className="text-purple-600">{realWorkflowData.type}</div>
                         </div>
                         <div>
-                          <span className="font-medium text-purple-700">開始時刻:</span>
+                          <span className="font-medium text-purple-700">Started At:</span>
                           <div className="text-purple-600">{new Date(realWorkflowData.metadata.startedAt).toLocaleString()}</div>
                         </div>
                         <div>
-                          <span className="font-medium text-purple-700">実行時間:</span>
-                          <div className="text-purple-600">{realWorkflowData.metadata.totalDuration ? `${realWorkflowData.metadata.totalDuration}ms` : '実行中'}</div>
+                          <span className="font-medium text-purple-700">Duration:</span>
+                          <div className="text-purple-600">{realWorkflowData.metadata.totalDuration ? `${realWorkflowData.metadata.totalDuration}ms` : 'Running'}</div>
                         </div>
                       </div>
                       {realWorkflowData.langfuseTraceId && (
@@ -779,13 +765,13 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
 
                 {/* A2A Protocol Info */}
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">🔗 A2Aプロトコル詳細</h4>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">A2A Protocol Details</h4>
                   <div className="bg-yellow-50 p-4 rounded-md text-xs space-y-1">
-                    <div>• JSON-RPC 2.0ベースのメッセージング</div>
-                    <div>• 非同期タスク処理とステータス追跡</div>
-                    <div>• エージェント間の直接通信</div>
-                    <div>• 標準化されたメッセージフォーマット</div>
-                    {realWorkflowData && <div>• このデータは実際の実行履歴から取得されました</div>}
+                    <div>JSON-RPC 2.0-based messaging.</div>
+                    <div>Async task processing with status tracking.</div>
+                    <div>Direct communication between agents.</div>
+                    <div>Standardized message format.</div>
+                    {realWorkflowData && <div>This data was loaded from the real execution history.</div>}
                   </div>
                 </div>
               </div>
@@ -796,7 +782,7 @@ export function A2AVisualization({ isActive, taskType, workflowExecutionId, task
                 onClick={() => setShowModal(false)}
                 className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
               >
-                閉じる
+                Close
               </button>
             </div>
           </div>

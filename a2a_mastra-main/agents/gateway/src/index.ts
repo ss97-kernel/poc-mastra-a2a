@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getOpenBoxRuntime } from '@openbox-ai/openbox-mastra-sdk';
 import { mastra } from './mastra/index.js';
 import { requestHandler, langfuse } from './routes/requestHandler.js';
 import { a2aAgentsHandler } from './routes/a2aAgentsHandler.js';
@@ -14,9 +15,10 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+const JSON_BODY_LIMIT = process.env.A2A_JSON_BODY_LIMIT || '2mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
-// CORS設定
+// CORS configuration
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -31,7 +33,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 静的ファイルサービング（フロントエンド用）
+// Static file serving for the frontend
 app.use(express.static(path.join(__dirname, '../public')));
 
 const PORT = process.env.PORT || 3001;
@@ -68,12 +70,14 @@ app.get('/api/agent', (req, res) => {
 // Graceful shutdown handler
 process.on('SIGINT', async () => {
   console.log('Shutting down gracefully...');
+  await getOpenBoxRuntime(mastra)?.shutdown();
   await langfuse.shutdownAsync();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log('Shutting down gracefully...');
+  await getOpenBoxRuntime(mastra)?.shutdown();
   await langfuse.shutdownAsync();
   process.exit(0);
 });

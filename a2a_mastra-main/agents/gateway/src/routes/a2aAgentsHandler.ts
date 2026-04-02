@@ -7,7 +7,7 @@ import {
   WorkflowExecution 
 } from '../mastra/workflows/workflowManager.js';
 import { asyncTasks, taskCounter, AsyncTask } from '../mastra/workflows/asyncTaskManager.js';
-import { executeDeepResearchWorkflow } from '../mastra/workflows/deepResearchWorkflow.js';
+import { runDeepResearchWorkflow } from '../mastra/workflows/deepResearchRunner.js';
 
 const router = express.Router();
 
@@ -112,9 +112,22 @@ router.post('/', async (req, res) => {
       asyncTasks.set(taskId, task);
 
       // Start the workflow asynchronously (fire and forget)
-      executeDeepResearchWorkflow(taskId, topic, validatedRequest.options || {}, trace)
+      runDeepResearchWorkflow({
+        topic,
+        options: validatedRequest.options || {},
+        audienceType: validatedRequest.audienceType,
+        taskId,
+      })
         .catch(error => {
           console.error(`Deep Research workflow error for task ${taskId}:`, error);
+          const failedTask = asyncTasks.get(taskId);
+          if (failedTask) {
+            failedTask.status = 'failed';
+            failedTask.error =
+              error instanceof Error ? error.message : 'Unknown error';
+            failedTask.completedAt = new Date().toISOString();
+            asyncTasks.set(taskId, failedTask);
+          }
         });
 
       // Return immediate response with task information

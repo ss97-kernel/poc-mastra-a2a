@@ -18,8 +18,7 @@ import { AgentDiscovery } from "@/components/AgentDiscovery"
 import { AgentCommunicationTest } from "@/components/AgentCommunicationTest"
 
 const formSchema = z.object({
-  type: z.enum(['process', 'summarize', 'analyze', 'web-search', 'news-search', 'scholarly-search', 'deep-research']),
-  data: z.string().min(1, "データまたは検索クエリを入力してください"),
+  prompt: z.string().min(1, "Enter a prompt"),
   context: z.string().optional(),
   audienceType: z.enum(['technical', 'executive', 'general']).optional(),
 })
@@ -52,19 +51,19 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<'demo' | 'discovery' | 'communication'>('demo')
   const [taskProgress, setTaskProgress] = useState<{progress: number, phase: string} | null>(null)
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
+  const [resolvedTaskType, setResolvedTaskType] = useState<ApiResponse['type'] | null>(null)
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      type: 'process',
-      data: '',
+      prompt: '',
       context: '',
       audienceType: 'general',
     },
   })
 
   const pollTaskStatus = async (taskId: string) => {
-    const maxAttempts = 60; // 最大10分間（10秒間隔）
+    const maxAttempts = 60;
     let attempts = 0;
 
     const poll = async () => {
@@ -74,14 +73,14 @@ export default function HomePage() {
           const taskData = await res.json();
           console.log('📊 Polling taskData received:', taskData);
           
-          // 新しいA2A形式に対応
+          // Handle the newer A2A response format.
           let status, progress, currentPhase, result;
           
           if (taskData.task) {
-            // 新しいA2A形式
+            // Newer A2A format.
             status = taskData.task.status?.state;
             
-            // artifactsから進捗情報を抽出
+            // Extract progress metadata from artifacts.
             const workflowArtifact = taskData.task.artifacts?.find((artifact: { type: string; metadata?: { progress?: number; currentPhase?: string }; data?: unknown }) => artifact.type === 'workflow-result');
             if (workflowArtifact?.metadata) {
               progress = workflowArtifact.metadata.progress;
@@ -89,7 +88,7 @@ export default function HomePage() {
             }
             result = workflowArtifact?.data;
           } else {
-            // 従来形式のフォールバック
+            // Fallback to the legacy format.
             status = taskData.status;
             progress = taskData.progress;
             currentPhase = taskData.currentPhase;
@@ -98,33 +97,21 @@ export default function HomePage() {
           
           console.log('📊 Extracted status:', status, 'progress:', progress, 'phase:', currentPhase);
           
-          // 進捗情報を更新 - 新旧両形式に対応
+          // Update progress while supporting both payload formats.
           if (progress !== undefined || currentPhase !== undefined) {
             setTaskProgress({
               progress: progress !== undefined ? progress : (taskProgress?.progress || 0),
               phase: currentPhase || taskProgress?.phase || 'search'
             });
           } else if (status === 'working' && taskData.task?.status?.message?.parts?.[0]?.text) {
-            // メッセージから進捗情報を抽出 (フォールバック)
+            // Extract progress information from the status message as a fallback.
             const messageText = taskData.task.status.message.parts[0].text;
             const progressMatch = messageText.match(/(\d+)%/);
             
-            // 日本語と英語のフェーズ名に対応
-            const phaseMatch = messageText.match(/(search|analyze|synthesize|Web検索|データ分析|結果統合)/);
+            const phaseMatch = messageText.match(/(search|analyze|synthesize)/);
             
             if (progressMatch || phaseMatch) {
-              let mappedPhase = phaseMatch ? phaseMatch[1] : (taskProgress?.phase || 'search');
-              
-              // 日本語フェーズ名を英語にマップ
-              const phaseMap: Record<string, string> = {
-                'Web検索フェーズ': 'search',
-                'Web検索': 'search',
-                'データ分析フェーズ': 'analyze', 
-                'データ分析': 'analyze',
-                '結果統合フェーズ': 'synthesize',
-                '結果統合': 'synthesize'
-              };
-              mappedPhase = phaseMap[mappedPhase] || mappedPhase;
+              const mappedPhase = phaseMatch ? phaseMatch[1] : (taskProgress?.phase || 'search');
               
               setTaskProgress({
                 progress: progressMatch ? parseInt(progressMatch[1]) : (taskProgress?.progress || 0),
@@ -135,7 +122,8 @@ export default function HomePage() {
 
           if (status === 'completed') {
             console.log('✅ Task completed - updating response and stopping polling');
-            // 完了時の応答形式を既存のAPIResponseに合わせる
+            // Normalize the completed payload into the existing ApiResponse shape.
+            setResolvedTaskType('deep-research')
             setResponse({
               status: 'success',
               type: 'deep-research',
@@ -162,7 +150,7 @@ export default function HomePage() {
 
         attempts++;
         if (attempts < maxAttempts) {
-          setTimeout(poll, 10000); // 10秒後に再試行
+          setTimeout(poll, 10000);
         } else {
           setError('Deep Research timed out. The task may still be running.');
           setLoading(false);
@@ -183,8 +171,8 @@ export default function HomePage() {
       }
     };
 
-    // 初回ポーリングを開始
-    setTimeout(poll, 5000); // 5秒後に開始
+    // Start polling after a short initial delay.
+    setTimeout(poll, 5000);
   };
 
   const onSubmit = async (values: FormData) => {
@@ -193,37 +181,21 @@ export default function HomePage() {
     setResponse(null)
     setTaskProgress(null)
     setCurrentTaskId(null)
+    setResolvedTaskType(null)
+    let asyncAccepted = false
 
     try {
-      // Deep Researchは新しいエンドポイントを使用
-      const isDeepResearch = values.type === 'deep-research';
-      const endpoint = isDeepResearch ? '/api/gateway/agents' : '/api/request';
-      
-      const requestBody = isDeepResearch ? {
-        type: values.type,
-        topic: values.data, // Deep Researchではtopicとして送信
-        options: {
-          depth: 'comprehensive',
-          sources: ['web', 'news'],
-          audienceType: values.audienceType || 'general',
-        },
-        context: values.context ? { description: values.context } : undefined,
-        audienceType: values.audienceType,
-      } : {
-        type: values.type,
-        data: values.type.includes('search') 
-          ? values.data  // For search tasks, use data as query
-          : (values.data.startsWith('{') ? JSON.parse(values.data) : values.data),
-        query: values.type.includes('search') ? values.data : undefined,
+      const requestBody = {
+        prompt: values.prompt,
         context: values.context ? { description: values.context } : undefined,
         audienceType: values.audienceType,
       };
 
-      // タイムアウト付きのfetchを実装
+      // Apply a request timeout.
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), isDeepResearch ? 600000 : 120000) // Deep Researchは10分
+      const timeoutId = setTimeout(() => controller.abort(), 120000)
 
-      const res = await fetch(endpoint, {
+      const res = await fetch('/api/request', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -241,22 +213,27 @@ export default function HomePage() {
 
       const data = await res.json()
       
-      // Deep Researchの場合は非同期処理
-      if (isDeepResearch && data.taskId) {
-        // タスクIDを受信したので、ポーリングを開始
+      if (data.taskId) {
+        asyncAccepted = true
+        setResolvedTaskType(data.type || 'deep-research')
         setCurrentTaskId(data.taskId)
+        setTaskProgress({
+          progress: 0,
+          phase: 'initiation',
+        })
         pollTaskStatus(data.taskId)
       } else {
+        setResolvedTaskType(data.type)
         setResponse(data)
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
-        setError('リクエストがタイムアウトしました。処理に時間がかかっています。')
+        setError('The request timed out. Processing is taking longer than expected.')
       } else {
-        setError(err instanceof Error ? err.message : 'エラーが発生しました')
+        setError(err instanceof Error ? err.message : 'An unexpected error occurred')
       }
     } finally {
-      if (!form.getValues('type') || form.getValues('type') !== 'deep-research') {
+      if (!asyncAccepted) {
         setLoading(false)
       }
     }
@@ -281,27 +258,6 @@ export default function HomePage() {
     }
   }
 
-  const getTaskDescription = (type: string) => {
-    switch (type) {
-      case 'process':
-        return 'データの処理とクリーニングを行います'
-      case 'summarize':
-        return 'データの要約を作成します'
-      case 'analyze':
-        return 'データの分析と要約の両方を実行します'
-      case 'web-search':
-        return 'Webからリアルタイムの情報を検索します'
-      case 'news-search':
-        return '最新のニュース記事を検索します'
-      case 'scholarly-search':
-        return '学術論文や研究資料を検索します'
-      case 'deep-research':
-        return '多段階の深い研究を実行します（非同期・長時間処理）'
-      default:
-        return ''
-    }
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="mx-auto max-w-6xl">
@@ -310,7 +266,7 @@ export default function HomePage() {
             Mastra A2A Demo
           </h1>
           <p className="text-slate-600">
-            Agent-to-Agent プロトコルを使用したマルチエージェント通信デモ
+            Multi-agent communication demo built on the Agent-to-Agent protocol
           </p>
           <div className="mt-4 flex justify-center gap-2">
             <Badge variant="secondary" className="flex items-center gap-1">
@@ -342,7 +298,7 @@ export default function HomePage() {
               }`}
               onClick={() => setActiveTab('demo')}
             >
-              A2Aデモ
+              Demo
             </button>
             <button
               className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -352,7 +308,7 @@ export default function HomePage() {
               }`}
               onClick={() => setActiveTab('discovery')}
             >
-              エージェント発見
+              Agent Discovery
             </button>
             <button
               className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -362,7 +318,7 @@ export default function HomePage() {
               }`}
               onClick={() => setActiveTab('communication')}
             >
-              通信テスト
+              Communication Test
             </button>
           </div>
         </div>
@@ -376,10 +332,10 @@ export default function HomePage() {
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <Send className="h-5 w-5" />
-                        リクエスト送信
+                        Submit Request
                       </CardTitle>
                       <CardDescription>
-                        A2Aエージェントにタスクを送信して結果を確認できます
+                        Enter a prompt. The gateway agent will classify intent and route it to the right agent or workflow.
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -387,95 +343,19 @@ export default function HomePage() {
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                           <FormField
                             control={form.control}
-                            name="type"
+                            name="prompt"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>タスクタイプ</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="タスクタイプを選択" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="process">
-                                      <div className="flex items-center gap-2">
-                                        <Database className="h-4 w-4" />
-                                        データ処理
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="summarize">
-                                      <div className="flex items-center gap-2">
-                                        <FileText className="h-4 w-4" />
-                                        要約作成
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="analyze">
-                                      <div className="flex items-center gap-2">
-                                        <Bot className="h-4 w-4" />
-                                        分析ワークフロー
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="web-search">
-                                      <div className="flex items-center gap-2">
-                                        <Search className="h-4 w-4" />
-                                        Web検索
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="news-search">
-                                      <div className="flex items-center gap-2">
-                                        <Search className="h-4 w-4" />
-                                        ニュース検索
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="scholarly-search">
-                                      <div className="flex items-center gap-2">
-                                        <Search className="h-4 w-4" />
-                                        学術検索
-                                      </div>
-                                    </SelectItem>
-                                    <SelectItem value="deep-research">
-                                      <div className="flex items-center gap-2">
-                                        <Bot className="h-4 w-4" />
-                                        Deep Research
-                                      </div>
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <FormDescription>
-                                  {getTaskDescription(field.value)}
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="data"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>データ</FormLabel>
+                                <FormLabel>Prompt</FormLabel>
                                 <FormControl>
                                   <Textarea
-                                    placeholder={
-                                      form.watch('type') === 'deep-research'
-                                        ? '例: AI in healthcare 2024, blockchain technology trends'
-                                        : form.watch('type')?.includes('search') 
-                                        ? '例: TypeScript 最新情報, 人工知能 市場動向'
-                                        : '例: {"sales": [100, 150, 200], "products": ["A", "B", "C"]}'
-                                    }
-                                    className="min-h-[100px]"
+                                    placeholder="Example: Analyze this quarterly sales JSON and summarize the key trends for executives."
+                                    className="min-h-[140px]"
                                     {...field}
                                   />
                                 </FormControl>
                                 <FormDescription>
-                                  {form.watch('type') === 'deep-research'
-                                    ? '研究トピックを英語または日本語で入力してください'
-                                    : form.watch('type')?.includes('search')
-                                    ? '検索クエリを日本語または英語で入力してください'
-                                    : 'JSON形式またはテキスト形式でデータを入力してください'
-                                  }
+                                  The gateway agent decides whether to process data, summarize content, search the web, or start deep research.
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -487,12 +367,12 @@ export default function HomePage() {
                             name="context"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>コンテキスト（オプション）</FormLabel>
+                                <FormLabel>Context (Optional)</FormLabel>
                                 <FormControl>
-                                  <Input placeholder="例: Q1 2024の売上データ" {...field} />
+                                  <Input placeholder="Example: Sales data for Q1 2024" {...field} />
                                 </FormControl>
                                 <FormDescription>
-                                  データの説明や背景情報を入力してください
+                                  Add background information or a short description of the data
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -504,21 +384,21 @@ export default function HomePage() {
                             name="audienceType"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>対象オーディエンス</FormLabel>
+                                <FormLabel>Audience</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                   <FormControl>
                                     <SelectTrigger>
-                                      <SelectValue placeholder="オーディエンスタイプを選択" />
+                                      <SelectValue placeholder="Select an audience" />
                                     </SelectTrigger>
                                   </FormControl>
                                   <SelectContent>
-                                    <SelectItem value="general">一般向け</SelectItem>
-                                    <SelectItem value="technical">技術者向け</SelectItem>
-                                    <SelectItem value="executive">経営陣向け</SelectItem>
+                                    <SelectItem value="general">General</SelectItem>
+                                    <SelectItem value="technical">Technical</SelectItem>
+                                    <SelectItem value="executive">Executive</SelectItem>
                                   </SelectContent>
                                 </Select>
                                 <FormDescription>
-                                  結果の表示形式を決定します
+                                  Controls how the result is framed
                                 </FormDescription>
                                 <FormMessage />
                               </FormItem>
@@ -529,12 +409,16 @@ export default function HomePage() {
                             {loading || Boolean(currentTaskId) ? (
                               <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                {form.getValues('type') === 'deep-research' && currentTaskId ? 'Deep Research実行中...' : '処理中...'}
+                                {resolvedTaskType === 'deep-research' && currentTaskId
+                                  ? 'Running Deep Research...'
+                                  : resolvedTaskType
+                                    ? 'Processing...'
+                                    : 'Routing Request...'}
                               </>
                             ) : (
                               <>
                                 <Send className="mr-2 h-4 w-4" />
-                                送信
+                                Submit
                               </>
                             )}
                           </Button>
@@ -547,10 +431,10 @@ export default function HomePage() {
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <CheckCircle className="h-5 w-5" />
-                        結果
+                        Result
                       </CardTitle>
                       <CardDescription>
-                        エージェントからの応答がここに表示されます
+                        Agent responses will appear here
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -573,19 +457,19 @@ export default function HomePage() {
 
                           <div className="rounded-md bg-slate-50 p-4">
                             <h4 className="mb-2 font-semibold">
-                              {response.type === 'deep-research' ? 'Deep Research結果:' : '処理結果:'}
+                              {response.type === 'deep-research' ? 'Deep Research Result:' : 'Result:'}
                             </h4>
                             {response.type === 'deep-research' && typeof response.result === 'object' ? (
                               <div className="space-y-3">
                                 <div>
-                                  <h5 className="font-medium text-slate-700">エグゼクティブサマリー:</h5>
+                                  <h5 className="font-medium text-slate-700">Executive Summary:</h5>
                                   <pre className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
-                                    {(response.result as Record<string, unknown>)?.executiveSummary as string || 'サマリーが生成されませんでした'}
+                                    {(response.result as Record<string, unknown>)?.executiveSummary as string || 'No summary was generated'}
                                   </pre>
                                 </div>
                                 {Array.isArray((response.result as Record<string, unknown>)?.keyFindings) && (
                                   <div>
-                                    <h5 className="font-medium text-slate-700">主要な発見:</h5>
+                                    <h5 className="font-medium text-slate-700">Key Findings:</h5>
                                     <div className="mt-1 text-sm text-slate-600">
                                       {((response.result as Record<string, unknown>).keyFindings as string[]).map((finding: string, index: number) => (
                                         <div key={index} className="py-1">• {finding}</div>
@@ -595,7 +479,7 @@ export default function HomePage() {
                                 )}
                                 {Array.isArray((response.result as Record<string, unknown>)?.recommendations) && (
                                   <div>
-                                    <h5 className="font-medium text-slate-700">推奨事項:</h5>
+                                    <h5 className="font-medium text-slate-700">Recommendations:</h5>
                                     <div className="mt-1 text-sm text-slate-600">
                                       {((response.result as Record<string, unknown>).recommendations as string[]).map((rec: string, index: number) => (
                                         <div key={index} className="py-1">• {rec}</div>
@@ -605,7 +489,7 @@ export default function HomePage() {
                                 )}
                                 {typeof (response.result as Record<string, unknown>)?.fullReport === 'string' && (
                                   <div>
-                                    <h5 className="font-medium text-slate-700">詳細レポート:</h5>
+                                    <h5 className="font-medium text-slate-700">Detailed Report:</h5>
                                     <pre className="mt-1 whitespace-pre-wrap text-sm text-slate-600 max-h-60 overflow-y-auto">
                                       {(response.result as Record<string, unknown>).fullReport as string}
                                     </pre>
@@ -615,7 +499,7 @@ export default function HomePage() {
                             ) : response.type === 'analyze' && typeof response.result === 'object' && response.result && 'workflow' in response.result ? (
                               <div className="space-y-3">
                                 <div>
-                                  <h5 className="font-medium text-slate-700">データ処理結果:</h5>
+                                  <h5 className="font-medium text-slate-700">Processing Result:</h5>
                                   <pre className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
                                     {response.result.steps && typeof response.result.steps.processing === 'string'
                                       ? response.result.steps.processing
@@ -624,7 +508,7 @@ export default function HomePage() {
                                   </pre>
                                 </div>
                                 <div>
-                                  <h5 className="font-medium text-slate-700">要約結果:</h5>
+                                  <h5 className="font-medium text-slate-700">Summary Result:</h5>
                                   <pre className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
                                     {response.result.steps && typeof response.result.steps.summary === 'string'
                                       ? response.result.steps.summary
@@ -636,18 +520,18 @@ export default function HomePage() {
                             ) : response.type.includes('search') && typeof response.result === 'object' && response.result && 'result' in response.result ? (
                               <div className="space-y-3">
                                 <div>
-                                  <h5 className="font-medium text-slate-700">検索クエリ:</h5>
+                                  <h5 className="font-medium text-slate-700">Search Query:</h5>
                                   <p className="mt-1 text-sm text-slate-600">{(response.result as { result?: { query?: string } }).result?.query || 'N/A'}</p>
                                 </div>
                                 <div>
-                                  <h5 className="font-medium text-slate-700">検索結果要約:</h5>
+                                  <h5 className="font-medium text-slate-700">Search Summary:</h5>
                                   <div className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
                                     {(response.result as { result?: { summary?: string } }).result?.summary || 'N/A'}
                                   </div>
                                 </div>
                                 {(response.result as { result?: { results?: Array<{ title: string; url: string; snippet: string; source?: string }> } }).result?.results && (
                                   <div>
-                                    <h5 className="font-medium text-slate-700">検索結果 ({(response.result as { result: { results: Array<unknown> } }).result.results.length}件):</h5>
+                                    <h5 className="font-medium text-slate-700">Results ({(response.result as { result: { results: Array<unknown> } }).result.results.length}):</h5>
                                     <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
                                       {(response.result as { result: { results: Array<{ title: string; url: string; snippet: string; source?: string }> } }).result.results.slice(0, 5).map((item, index: number) => (
                                         <div key={index} className="border-l-2 border-blue-200 pl-3">
@@ -673,15 +557,15 @@ export default function HomePage() {
                           </div>
 
                           <div className="text-xs text-slate-500">
-                            <p>完了時刻: {new Date(response.metadata.completedAt).toLocaleString('ja-JP')}</p>
-                            <p>処理エージェント: {response.metadata.gateway}</p>
+                            <p>Completed At: {new Date(response.metadata.completedAt).toLocaleString('en-GB')}</p>
+                            <p>Handling Agent: {response.metadata.gateway}</p>
                           </div>
                         </div>
                       )}
 
                       {!response && !error && !loading && !currentTaskId && (
                         <div className="flex h-32 items-center justify-center text-slate-500">
-                          <p>リクエストを送信すると結果がここに表示されます</p>
+                          <p>Results will appear here after you submit a request</p>
                         </div>
                       )}
 
@@ -692,18 +576,20 @@ export default function HomePage() {
                             <p className="mt-2 text-slate-500">
                               {taskProgress && currentTaskId ? (
                                 <>
-                                  Deep Research実行中... ({taskProgress.progress}%)
+                                  Running Deep Research... ({taskProgress.progress}%)
                                   <br />
                                   <span className="text-xs text-slate-400">
-                                    フェーズ: {taskProgress.phase === 'search' ? 'Web検索' : 
-                                               taskProgress.phase === 'analyze' ? 'データ分析' :
-                                               taskProgress.phase === 'synthesize' ? '結果統合' : taskProgress.phase}
+                                    Phase: {taskProgress.phase === 'search' ? 'Web Search' :
+                                            taskProgress.phase === 'analyze' ? 'Data Analysis' :
+                                            taskProgress.phase === 'synthesize' ? 'Synthesis' : taskProgress.phase}
                                   </span>
                                 </>
                               ) : currentTaskId ? (
-                                'Deep Research開始中...'
+                                'Starting Deep Research...'
                               ) : (
-                                'エージェント間で処理中...'
+                                resolvedTaskType
+                                  ? `Processing with ${resolvedTaskType}...`
+                                  : 'Routing through the gateway agent...'
                               )}
                             </p>
                             {taskProgress && (
@@ -725,7 +611,9 @@ export default function HomePage() {
               <div className="lg:col-span-1">
                 <A2AVisualization
                   isActive={loading || Boolean(currentTaskId)}
-                  taskType={loading ? form.getValues('type') : (response ? response.type as 'process' | 'summarize' | 'analyze' | 'web-search' | 'news-search' | 'scholarly-search' | 'deep-research' : null)}
+                  taskType={(loading || Boolean(currentTaskId))
+                    ? (resolvedTaskType as 'process' | 'summarize' | 'analyze' | 'web-search' | 'news-search' | 'scholarly-search' | 'deep-research' | null)
+                    : (response ? response.type as 'process' | 'summarize' | 'analyze' | 'web-search' | 'news-search' | 'scholarly-search' | 'deep-research' : null)}
                   workflowExecutionId={response?.metadata?.workflowExecutionId}
                   taskId={currentTaskId || undefined}
                   taskProgress={taskProgress}
@@ -735,17 +623,18 @@ export default function HomePage() {
 
             <Card className="mt-6">
               <CardHeader>
-                <CardTitle>サンプルデータ</CardTitle>
+                <CardTitle>Sample Prompts</CardTitle>
                 <CardDescription>
-                  以下のサンプルデータを使用してテストできます
+                  Use these prompts to exercise different routing decisions
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   <div className="rounded-md bg-slate-50 p-3">
-                    <h4 className="mb-2 font-medium">売上データ</h4>
+                    <h4 className="mb-2 font-medium">Data Processing</h4>
                     <pre className="text-xs text-slate-600">
-{`{
+{`Clean and process this JSON:
+{
   "sales": [100, 150, 200, 175, 250],
   "products": ["A", "B", "C", "D", "E"],
   "quarter": "Q1 2024"
@@ -753,32 +642,31 @@ export default function HomePage() {
                     </pre>
                   </div>
                   <div className="rounded-md bg-slate-50 p-3">
-                    <h4 className="mb-2 font-medium">顧客データ</h4>
+                    <h4 className="mb-2 font-medium">Summarization</h4>
                     <pre className="text-xs text-slate-600">
-{`{
-  "customers": [
-    {"id": 1, "purchases": 5, "value": 500},
-    {"id": 2, "purchases": 3, "value": 300},
-    {"id": 3, "purchases": 8, "value": 800}
+{`Summarize this incident update for an executive audience:
+API latency increased 18%, cache hit rate dropped from 92% to 81%, and database CPU peaked at 87%.`}
+                    </pre>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-3">
+                    <h4 className="mb-2 font-medium">Analysis</h4>
+                    <pre className="text-xs text-slate-600">
+{`Analyze this support data and summarize the main trends:
+{
+  "support": [
+    {"week": "W1", "resolved": 84, "opened": 91},
+    {"week": "W2", "resolved": 95, "opened": 88},
+    {"week": "W3", "resolved": 103, "opened": 90}
   ]
 }`}
                     </pre>
                   </div>
                   <div className="rounded-md bg-slate-50 p-3">
-                    <h4 className="mb-2 font-medium">テキストデータ</h4>
+                    <h4 className="mb-2 font-medium">Search And Research</h4>
                     <pre className="text-xs text-slate-600">
-{`2024年第1四半期の業績は前年同期比で
-20%の成長を記録しました。特に新製品
-ラインの好調な売れ行きが貢献しており、
-今後の展開が期待されます。`}
-                    </pre>
-                  </div>
-                  <div className="rounded-md bg-slate-50 p-3">
-                    <h4 className="mb-2 font-medium">Web検索クエリ</h4>
-                    <pre className="text-xs text-slate-600">
-{`TypeScript 5.0 新機能
-人工知能 最新動向 2024
-React Server Components 使い方`}
+{`Find recent news about Anthropic enterprise announcements.
+
+Research AI agents in enterprise support and produce a detailed report with sources.`}
                     </pre>
                   </div>
                 </div>
@@ -792,42 +680,42 @@ React Server Components 使い方`}
             <AgentDiscovery />
             <Card>
               <CardHeader>
-                <CardTitle>A2Aプロトコル情報</CardTitle>
+                <CardTitle>A2A Protocol Information</CardTitle>
                 <CardDescription>
-                  実装されているA2A標準機能
+                  Implemented A2A capabilities
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span className="text-sm">エージェントカード取得 (getAgentCard)</span>
+                    <span className="text-sm">Agent card lookup (`getAgentCard`)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span className="text-sm">メッセージ送信 (sendMessage)</span>
+                    <span className="text-sm">Message sending (`sendMessage`)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span className="text-sm">タスク状態取得 (getTask)</span>
+                    <span className="text-sm">Task status lookup (`getTask`)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span className="text-sm">タスクキャンセル (cancelTask)</span>
+                    <span className="text-sm">Task cancellation (`cancelTask`)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span className="text-sm">エージェント発見</span>
+                    <span className="text-sm">Agent discovery</span>
                   </div>
                 </div>
                 
                 <div className="p-3 bg-blue-50 rounded-md">
-                  <h4 className="font-medium text-blue-900 mb-2">標準エンドポイント</h4>
+                  <h4 className="font-medium text-blue-900 mb-2">Standard Endpoints</h4>
                   <div className="text-sm text-blue-700 space-y-1">
-                    <div><code>/api/gateway/info</code> - ゲートウェイ情報</div>
-                    <div><code>/api/gateway/message</code> - メッセージング</div>
-                    <div><code>/api/gateway/task</code> - タスク管理</div>
-                    <div><code>/api/gateway/agents</code> - エージェント一覧</div>
+                    <div><code>/api/gateway/info</code> - Gateway information</div>
+                    <div><code>/api/gateway/message</code> - Messaging</div>
+                    <div><code>/api/gateway/task</code> - Task management</div>
+                    <div><code>/api/gateway/agents</code> - Agent directory</div>
                   </div>
                 </div>
               </CardContent>

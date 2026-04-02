@@ -17,8 +17,8 @@ services:
   # Gateway Agent - Entry point for all requests
   gateway:
     build:
-      context: ./agents/gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: agents/gateway/Dockerfile
     container_name: a2a-gateway-agent
     ports:
       - "${GATEWAY_PORT:-3001}:3001"
@@ -27,18 +27,22 @@ services:
       - PORT=3001
       - AGENT_ID=gateway-agent-01
       - AGENT_NAME=Gateway Agent
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_GATEWAY_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
       - DATA_PROCESSOR_URL=http://data-processor:3002
       - SUMMARIZER_URL=http://summarizer:3003
       - WEB_SEARCH_URL=http://web-search:3004
       - DATA_PROCESSOR_AGENT_ID=data-processor-agent-01
       - SUMMARIZER_AGENT_ID=summarizer-agent-01
       - WEB_SEARCH_AGENT_ID=web-search-agent-01
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-default_public_key}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-default_secret_key}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
     networks:
       - a2a-network
@@ -52,8 +56,8 @@ services:
   # Data Processor Agent - Handles data processing tasks
   data-processor:
     build:
-      context: ./agents/data-processor
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: agents/data-processor/Dockerfile
     container_name: a2a-data-processor-agent
     ports:
       - "${DATA_PROCESSOR_PORT:-3002}:3002"
@@ -62,12 +66,16 @@ services:
       - PORT=3002
       - AGENT_ID=data-processor-agent-01
       - AGENT_NAME=Data Processor Agent
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-default_public_key}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-default_secret_key}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_DATA_PROCESSOR_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
     networks:
       - a2a-network
@@ -77,8 +85,8 @@ services:
   # Summarizer Agent - Summarizes processed data
   summarizer:
     build:
-      context: ./agents/summarizer
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: agents/summarizer/Dockerfile
     container_name: a2a-summarizer-agent
     ports:
       - "${SUMMARIZER_PORT:-3003}:3003"
@@ -87,12 +95,16 @@ services:
       - PORT=3003
       - AGENT_ID=summarizer-agent-01
       - AGENT_NAME=Summarizer Agent
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-default_public_key}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-default_secret_key}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_SUMMARIZER_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
     networks:
       - a2a-network
@@ -103,7 +115,7 @@ services:
   web-search:
     build:
       context: .
-      dockerfile: ./agents/web-search/Dockerfile
+      dockerfile: agents/web-search/Dockerfile
     container_name: a2a-web-search-agent
     ports:
       - "${WEB_SEARCH_PORT:-3004}:3004"
@@ -112,13 +124,17 @@ services:
       - PORT=3004
       - AGENT_ID=web-search-agent-01
       - AGENT_NAME=Web Search Agent
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-default_public_key}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-default_secret_key}
+      - OPENBOX_URL=${OPENBOX_URL}
+      - OPENBOX_API_KEY=${OPENBOX_WEB_SEARCH_API_KEY}
+      - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
+      - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_BASEURL=${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}
     networks:
       - a2a-network
@@ -128,4 +144,3 @@ services:
 networks:
   a2a-network:
     driver: bridge
-

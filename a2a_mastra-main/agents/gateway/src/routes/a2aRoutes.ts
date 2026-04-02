@@ -1,5 +1,5 @@
 import express from 'express';
-import { gatewayAgent } from '../mastra/agents/gatewayAgent.js';
+import { mastra } from '../mastra/index.js';
 import { asyncTasks } from '../mastra/workflows/asyncTaskManager.js';
 import { getAgentCard } from '../utils/mastraA2AClient.js';
 
@@ -8,6 +8,14 @@ const router = express.Router();
 const AGENT_ID = process.env.AGENT_ID || 'gateway-agent-01';
 const AGENT_NAME = process.env.AGENT_NAME || 'Gateway Agent';
 const PORT = process.env.PORT || 3001;
+
+function getGatewayAgentOrThrow() {
+  const agent = mastra.getAgent(AGENT_ID);
+  if (!agent) {
+    throw new Error(`Gateway agent ${AGENT_ID} is not registered`);
+  }
+  return agent;
+}
 
 // Agent IDs for A2A communication
 const AGENT_IDS = {
@@ -22,7 +30,7 @@ router.get('/info', (req, res) => {
     id: AGENT_ID,
     name: AGENT_NAME,
     type: 'gateway',
-    description: 'ゲートウェイエージェント - リクエストを受信し、適切なエージェントにルーティングします',
+    description: 'Gateway agent that receives requests and routes them to the appropriate agent',
     capabilities: ['routing', 'orchestration', 'workflow-management'],
     endpoint: `http://gateway:${PORT}`,
     status: 'online',
@@ -64,7 +72,7 @@ router.post('/message', async (req, res) => {
     let result;
     try {
       // Process the message using the gateway agent
-      const response = await gatewayAgent.generate([
+      const response = await getGatewayAgentOrThrow().generate([
         { role: "user", content: message.parts[0].text }
       ]);
       
@@ -78,7 +86,7 @@ router.post('/message', async (req, res) => {
               role: 'agent',
               parts: [{
                 type: 'text',
-                text: 'ゲートウェイによりメッセージが正常に処理されました'
+                text: 'The gateway processed the message successfully'
               }]
             }
           },
@@ -104,7 +112,7 @@ router.post('/message', async (req, res) => {
               role: 'agent',
               parts: [{
                 type: 'text',
-                text: `エラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}`
+                text: `An error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`
               }]
             }
           },
@@ -153,7 +161,7 @@ router.post('/task', async (req, res) => {
             role: 'agent',
             parts: [{
               type: 'text',
-              text: 'ゲートウェイエージェントによりタスクが正常に処理されました'
+              text: 'The gateway agent processed the task successfully'
             }]
           }
         },
@@ -181,7 +189,7 @@ router.post('/task', async (req, res) => {
             role: 'agent',
             parts: [{
               type: 'text',
-              text: `タスク処理エラー: ${error instanceof Error ? error.message : 'Unknown error'}`
+              text: `Task processing error: ${error instanceof Error ? error.message : 'Unknown error'}`
             }]
           }
         },
@@ -203,18 +211,18 @@ router.get('/task/:taskId', (req, res) => {
                   asyncTask.status === 'completed' ? 'completed' :
                   asyncTask.status === 'cancelled' ? 'failed' : 'failed';
     const phaseNameMap: Record<string, string> = {
-      'search': 'Web検索フェーズ',
-      'analyze': 'データ分析フェーズ', 
-      'synthesize': '結果統合フェーズ',
-      'completed': '完了'
+      'search': 'Web Search Phase',
+      'analyze': 'Data Analysis Phase',
+      'synthesize': 'Synthesis Phase',
+      'completed': 'Completed'
     };
     
     const statusText = asyncTask.status === 'working' ? 
       `${phaseNameMap[asyncTask.currentPhase] || asyncTask.currentPhase} (${asyncTask.progress}%)` :
-      asyncTask.status === 'completed' ? 'Deep Research完了' :
-      asyncTask.status === 'cancelled' ? 'タスクがキャンセルされました' :
-      asyncTask.status === 'failed' ? `失敗: ${asyncTask.error}` :
-      'タスク開始中';
+      asyncTask.status === 'completed' ? 'Deep Research completed' :
+      asyncTask.status === 'cancelled' ? 'Task cancelled' :
+      asyncTask.status === 'failed' ? `Failed: ${asyncTask.error}` :
+      'Starting task';
     
     return res.json({
       task: {
@@ -258,7 +266,7 @@ router.get('/task/:taskId', (req, res) => {
           role: 'agent',
           parts: [{
             type: 'text',
-            text: 'タスクが正常に完了しました'
+            text: 'Task completed successfully'
           }]
         }
       },
@@ -297,7 +305,7 @@ router.delete('/task/:taskId', (req, res) => {
             role: 'agent',
             parts: [{
               type: 'text',
-              text: 'リクエストによりタスクがキャンセルされました'
+              text: 'Task cancelled by request'
             }]
           }
         },
@@ -317,7 +325,7 @@ router.delete('/task/:taskId', (req, res) => {
           role: 'agent',
           parts: [{
             type: 'text',
-            text: 'リクエストによりタスクがキャンセルされました'
+            text: 'Task cancelled by request'
           }]
         }
       },

@@ -1,57 +1,96 @@
-import { z } from 'zod';
-import { Langfuse } from 'langfuse';
+import { mastra } from '../index.js';
+import {
+  buildSearchSummaryPrompt,
+  buildSearchConfig,
+  langfuse,
+  searchExecutionResultSchema,
+  searchTaskSchema,
+  WEB_SEARCH_TASK_WORKFLOW_ID,
+  webSearchTaskWorkflowInputSchema,
+} from './searchTaskWorkflow.js';
+import type { z } from 'zod';
 
 const AGENT_ID = process.env.AGENT_ID || 'web-search-agent-01';
 const AGENT_NAME = process.env.AGENT_NAME || 'Web Search Agent';
 
-// Task schema for web search
-export const searchTaskSchema = z.object({
-  type: z.enum(['web-search', 'news-search', 'scholarly-search', 'comprehensive-search']),
-  query: z.string(),
-  context: z.record(z.any()).optional(),
-  options: z.object({
-    maxResults: z.number().optional().default(10),
-    language: z.string().optional().default('en'),
-    region: z.string().optional().default('us'),
-    timeRange: z.enum(['day', 'week', 'month', 'year', 'all']).optional().default('all'),
-    category: z.enum(['general', 'news', 'images', 'videos', 'scholarly']).optional().default('general'),
-    safesearch: z.enum(['strict', 'moderate', 'off']).optional().default('moderate'),
-    sources: z.array(z.enum(['web', 'news', 'academic', 'reports'])).optional().default(['web']),
-  }).optional(),
-});
+function extractModelId(result: unknown): string | undefined {
+  if (!result || typeof result !== 'object') {
+    return undefined;
+  }
 
-// Initialize Langfuse client for tracing
-const langfuse = new Langfuse({
-  publicKey: process.env.LANGFUSE_PUBLIC_KEY,
-  secretKey: process.env.LANGFUSE_SECRET_KEY,
-  baseUrl: process.env.LANGFUSE_BASEURL || 'https://cloud.langfuse.com',
-});
+  const response = (result as Record<string, unknown>).response;
+  if (!response || typeof response !== 'object') {
+    return undefined;
+  }
+
+  return typeof (response as Record<string, unknown>).modelId === 'string'
+    ? ((response as Record<string, unknown>).modelId as string)
+    : undefined;
+}
+
+function buildSearchPrompt(task: z.infer<typeof searchTaskSchema>) {
+  const { enhancedQuery } = buildSearchConfig(task);
+
+  return {
+    enhancedQuery,
+    searchPrompt: '',
+  };
+}
+
+async function executeSearchWorkflow(
+  task: z.infer<typeof searchTaskSchema>,
+  taskId: string,
+  parentTraceId?: string
+) {
+  const workflow = mastra.getWorkflow(WEB_SEARCH_TASK_WORKFLOW_ID);
+
+  if (!workflow) {
+    throw new Error(`Workflow ${WEB_SEARCH_TASK_WORKFLOW_ID} is not registered`);
+  }
+
+  const run = await workflow.createRun();
+  const workflowInput = webSearchTaskWorkflowInputSchema.parse({
+    ...task,
+    taskId,
+    parentTraceId,
+  });
+  const result = await run.start({
+    inputData: [workflowInput],
+  });
+
+  if ('status' in result && result.status !== 'success') {
+    throw new Error(
+      `Web search workflow ${WEB_SEARCH_TASK_WORKFLOW_ID} failed with status ${result.status}`
+    );
+  }
+
+  return searchExecutionResultSchema.parse(
+    'result' in result ? result.result : result
+  );
+}
 
 // Helper function to process search tasks
-export async function processSearchTask(task: any, taskId: string, webSearchAgent: any, parentTraceId?: string) {
-  // Create Langfuse trace for this search task
+export async function processSearchTask(
+  task: any,
+  taskId: string,
+  _webSearchAgent?: unknown,
+  parentTraceId?: string
+) {
+  const validatedTask = searchTaskSchema.parse(task);
   const trace = langfuse.trace({
     id: parentTraceId || undefined,
     name: 'web-search-task',
     metadata: {
       agent: AGENT_NAME,
       agentId: AGENT_ID,
-      taskId: taskId,
-      taskType: task?.type || 'unknown',
+      taskId,
+      taskType: validatedTask.type,
     },
     tags: ['web-search', 'search-task'],
   });
 
-  let validatedTask;
-  try {
-    validatedTask = searchTaskSchema.parse(task);
-  } catch (error) {
-    console.error('Task validation failed:', error);
-    console.error('Received task:', JSON.stringify(task, null, 2));
-    throw new Error(`Invalid task format: ${error instanceof Error ? error.message : 'Unknown validation error'}`);
-  }
-  
-  // Log task validation
+  const { enhancedQuery } = buildSearchPrompt(validatedTask);
+
   trace.event({
     name: 'task-validated',
     metadata: {
@@ -61,199 +100,108 @@ export async function processSearchTask(task: any, taskId: string, webSearchAgen
       maxResults: validatedTask.options?.maxResults || 10,
     },
   });
-  
-  let searchResult;
-  
+
+  const generation = trace.generation({
+    name: 'web-search-execution',
+    model: 'web-search-api',
+    input: {
+      query: enhancedQuery,
+      options: validatedTask.options || {},
+    },
+    metadata: {
+      searchType: validatedTask.type,
+      queryLength: enhancedQuery.length,
+    },
+  });
+
   try {
-    // Determine search strategy based on task type
-    let enhancedQuery = validatedTask.query;
-    const originalOptions = validatedTask.options || {};
-    let searchOptions: any = { ...originalOptions };
-    
-    switch (validatedTask.type) {
-      case 'news-search':
-        enhancedQuery = `latest news ${validatedTask.query}`;
-        searchOptions = {
-          ...searchOptions,
-          timeRange: 'week',
-          category: 'news',
-        };
-        break;
-        
-      case 'scholarly-search':
-        enhancedQuery = `academic research ${validatedTask.query}`;
-        searchOptions = {
-          ...searchOptions,
-          category: 'scholarly',
-        };
-        break;
-        
-      case 'comprehensive-search':
-        // For comprehensive search, we'll perform multiple searches
-        // with different strategies and combine results
-        enhancedQuery = validatedTask.query;
-        const currentMaxResults = searchOptions.maxResults || 10;
-        searchOptions = {
-          ...searchOptions,
-          maxResults: Math.max(currentMaxResults, 15),
-        };
-        break;
-        
-      default: // web-search
-        // Keep original query for general web search
-        break;
+    const searchResult = await executeSearchWorkflow(
+      validatedTask,
+      taskId,
+      parentTraceId
+    );
+    const searchPrompt = buildSearchSummaryPrompt(validatedTask, searchResult);
+
+    const agent = mastra.getAgent(AGENT_ID);
+    if (!agent) {
+      throw new Error(`Agent ${AGENT_ID} not found`);
     }
 
-    // Perform web search with Langfuse tracing
-    console.log('Performing web search with query:', enhancedQuery);
-    
-    const generation = trace.generation({
-      name: 'web-search-execution',
-      model: 'web-search-api',
-      input: {
-        query: enhancedQuery,
-        options: searchOptions,
+    const result = await agent.generate([
+      {
+        role: 'user',
+        content: searchPrompt,
       },
+    ]);
+    const usage = result.usage || {};
+    const modelId = extractModelId(result);
+
+    generation.end({
+      output: result.text,
       metadata: {
-        searchType: validatedTask.type,
-        queryLength: enhancedQuery.length,
+        responseLength: result.text.length,
+        usage,
+        ...(modelId ? { modelId } : {}),
       },
     });
-    
-    try {
-      // Use Mastra Agent with MCP tools to perform search
-      console.log('Using Agent with MCP tools for search...');
-      
-      // Create search prompt for the agent - use the correct tool names from standalone MCP server
-      const toolName = validatedTask.type === 'news-search' ? 'brave-search_brave_news_search' : 'brave-search_brave_web_search';
-      
-      const searchParams = {
-        query: enhancedQuery,
-        count: Math.min((searchOptions as any)?.maxResults || 10, 20)
-      };
 
-      console.log('Search parameters for tool:', searchParams);
-      console.log('Tool name to be used:', toolName);
+    trace.event({
+      name: 'search-completed',
+      metadata: {
+        success: true,
+        responseLength: result.text.length,
+        usage,
+        ...(modelId ? { modelId } : {}),
+      },
+    });
 
-      const searchPrompt = `
-        検索クエリ「${enhancedQuery}」について${validatedTask.type === 'news-search' ? 'ニュース検索' : 'Web検索'}を実行してください。
-
-        必ず「${toolName}」ツールを使用して以下のパラメータで検索を実行してください：
-        
-        ツール名: ${toolName}
-        パラメータ:
-        {
-          "query": "${enhancedQuery}",
-          "count": ${searchParams.count}
-        }
-
-        重要: 必ずツールを呼び出してください。ツールを使用せずに想像で回答しないでください。
-
-        ツール実行後、結果を基に以下を日本語で提供してください：
-        1. 検索結果の要約（3-5文）
-        2. 最も関連性の高い情報のハイライト
-        3. 信頼性の評価
-        4. 追加の検索が必要な場合の提案
-      `;
-
-      generation.end({
-        input: searchPrompt,
-        metadata: {
-          searchType: validatedTask.type,
-          queryLength: enhancedQuery.length,
-        },
-      });
-
-      // Use agent to perform search and analysis
-      console.log('Sending prompt to agent:', searchPrompt);
-      console.log('Enhanced query:', enhancedQuery);
-      console.log('Search options:', searchOptions);
-      
-      const result = await webSearchAgent.generate([
-        { 
-          role: "user", 
-          content: searchPrompt
-        }
-      ]);
-
-      console.log('Agent result:', result);
-      console.log('Agent response text:', result.text);
-
-      searchResult = {
-        task: {
-          id: taskId,
-          status: {
-            state: 'completed',
-            timestamp: new Date().toISOString(),
-            message: {
-              role: 'agent',
-              parts: [{
+    return {
+      task: {
+        id: taskId,
+        status: {
+          state: 'completed',
+          timestamp: new Date().toISOString(),
+          message: {
+            role: 'agent',
+            parts: [
+              {
                 type: 'text',
-                text: 'Web検索が正常に完了しました'
-              }]
-            }
+                text: 'Web search completed successfully',
+              },
+            ],
           },
-          artifacts: [{
+        },
+        artifacts: [
+          {
             type: 'search-result',
             data: {
-              query: enhancedQuery,
+              query: searchResult.query,
+              rawResults: searchResult,
               summary: result.text,
-              fullResponse: result,
             },
             metadata: {
               completedAt: new Date().toISOString(),
               searchType: validatedTask.type,
               traceId: trace.id,
-              searchProvider: 'Brave Search (via MCP + Agent)',
-              usage: result.usage || {},
-            }
-          }]
-        }
-      };
-
-      // Log successful completion
-      trace.event({
-        name: 'search-completed',
-        metadata: {
-          success: true,
-          responseLength: result.text.length,
-          usage: result.usage || {},
-        },
-      });
-
-    } catch (error) {
-      trace.event({
-        name: 'search-failed',
-        metadata: {
-          error: error instanceof Error ? error.message : 'Unknown error',
-          errorType: error instanceof Error ? error.constructor.name : 'Unknown',
-        },
-      });
-      
-      throw error;
-    }
-
-  } catch (error) {
-    searchResult = {
-      task: {
-        id: taskId,
-        status: {
-          state: 'failed',
-          timestamp: new Date().toISOString(),
-          message: {
-            role: 'agent',
-            parts: [{
-              type: 'text',
-              text: `エラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}`
-            }]
-          }
-        },
-        artifacts: []
-      }
+              searchProvider: 'Brave Search API via MCP',
+              usage,
+              ...(modelId ? { modelId } : {}),
+            },
+          },
+        ],
+      },
     };
+  } catch (error) {
+    trace.event({
+      name: 'search-failed',
+      metadata: {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+      },
+    });
+
+    throw error;
   }
-  
-  return searchResult;
 }
 
 export { langfuse };

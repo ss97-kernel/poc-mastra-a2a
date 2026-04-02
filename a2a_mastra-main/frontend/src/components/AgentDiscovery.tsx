@@ -158,7 +158,7 @@ export function AgentDiscovery() {
           id: discoveryResult.gateway.id,
           name: discoveryResult.gateway.name,
           type: 'gateway',
-          description: 'ゲートウェイエージェント - リクエストを受信し、適切なエージェントにルーティングします',
+          description: 'Gateway agent that receives requests and routes them to the appropriate agent',
           capabilities: ['routing', 'orchestration', 'workflow-management'],
           endpoint: window.location.origin,
           status: discoveryResult.gateway.status as 'online' | 'offline' | 'unknown',
@@ -179,7 +179,7 @@ export function AgentDiscovery() {
         id: 'gateway-agent-01',
         name: 'Gateway Agent',
         type: 'gateway',
-        description: 'ゲートウェイエージェント',
+        description: 'Gateway agent',
         capabilities: ['routing'],
         endpoint: window.location.origin,
         status: 'unknown',
@@ -198,7 +198,7 @@ export function AgentDiscovery() {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">エージェントディスカバリー</CardTitle>
+          <CardTitle className="text-lg">Agent Discovery</CardTitle>
           <Button
             variant="outline"
             size="sm"
@@ -206,12 +206,12 @@ export function AgentDiscovery() {
             disabled={isLoading}
           >
             <RefreshCw className={cn("h-4 w-4 mr-2", isLoading && "animate-spin")} />
-            更新
+            Refresh
           </Button>
         </div>
         {lastUpdated && (
           <p className="text-sm text-muted-foreground">
-            最終更新: {lastUpdated.toLocaleTimeString()}
+            Last updated: {lastUpdated.toLocaleTimeString()}
           </p>
         )}
       </CardHeader>
@@ -225,13 +225,13 @@ export function AgentDiscovery() {
         {isLoading && agents.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-            <span>エージェントを検索中...</span>
+            <span>Discovering agents...</span>
           </div>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Activity className="h-4 w-4" />
-              <span>{agents.length}個のエージェントが見つかりました</span>
+              <span>Found {agents.length} agents</span>
             </div>
             
             {agents.map((agent) => (
@@ -271,15 +271,15 @@ export function AgentDiscovery() {
                     <div className="flex items-center gap-2">
                       {getStatusIcon(agent.status)}
                       <span className="text-sm font-medium">
-                        {agent.status === 'online' ? 'オンライン' : 
-                         agent.status === 'offline' ? 'オフライン' : '不明'}
+                        {agent.status === 'online' ? 'Online' :
+                         agent.status === 'offline' ? 'Offline' : 'Unknown'}
                       </span>
                     </div>
                   </div>
                   
                   <div className="mt-4 space-y-3">
                     <div>
-                      <h4 className="text-sm font-medium mb-2">機能</h4>
+                      <h4 className="text-sm font-medium mb-2">Capabilities</h4>
                       <div className="flex flex-wrap gap-1">
                         {agent.capabilities.map((capability) => (
                           <Badge key={capability} variant="outline" className="text-xs">
@@ -292,7 +292,7 @@ export function AgentDiscovery() {
                     {((agent.supportedTaskTypes && agent.supportedTaskTypes.length > 0) || 
                       (agent.skills && agent.skills.length > 0)) && (
                       <div>
-                        <h4 className="text-sm font-medium mb-2">対応タスク/スキル</h4>
+                        <h4 className="text-sm font-medium mb-2">Supported Tasks / Skills</h4>
                         <div className="flex flex-wrap gap-1">
                           {agent.supportedTaskTypes?.map((taskType) => (
                             <Badge key={taskType} variant="secondary" className="text-xs">
@@ -310,7 +310,7 @@ export function AgentDiscovery() {
                     
                     {agent.supportedProtocols && agent.supportedProtocols.length > 0 && (
                       <div>
-                        <h4 className="text-sm font-medium mb-2">対応プロトコル</h4>
+                        <h4 className="text-sm font-medium mb-2">Supported Protocols</h4>
                         <div className="flex flex-wrap gap-1">
                           {agent.supportedProtocols.map((protocol) => (
                             <Badge 
@@ -340,9 +340,9 @@ export function AgentDiscovery() {
         {!isLoading && agents.length > 0 && (
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
             <div className="text-xs text-blue-700 space-y-1">
-              <div className="font-medium">💡 エージェント発見について:</div>
-              <div>• Gateway Agentが/api/gateway/agentsエンドポイント経由でエージェントを検索</div>
-              <div>• 各エージェントの能力、対応タスク、プロトコル情報を表示</div>
+              <div className="font-medium">Agent discovery notes:</div>
+              <div>Gateway Agent discovers agents through the `/api/gateway/agents` endpoint.</div>
+              <div>Each card shows capabilities, supported tasks, and protocol information.</div>
             </div>
           </div>
         )}
