@@ -5,6 +5,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 describe("OpenBox Mastra bootstrap", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doMock('@mastra/libsql', () => ({
+      LibSQLStore: class {
+        config: unknown;
+        logger: unknown;
+
+        constructor(config: unknown) {
+          this.config = config;
+        }
+
+        async init() {
+          return undefined;
+        }
+
+        __setLogger(logger: unknown) {
+          this.logger = logger;
+        }
+      },
+    }));
   });
 
   afterEach(() => {
@@ -190,6 +208,9 @@ describe("OpenBox Mastra bootstrap", () => {
     });
     expect(
       module.mastra.original.getWorkflow("web-search-task-workflow")
+    ).toBeDefined();
+    expect(
+      module.mastra.original.getWorkflow("web-search-orchestration-workflow")
     ).toBeDefined();
   });
 });

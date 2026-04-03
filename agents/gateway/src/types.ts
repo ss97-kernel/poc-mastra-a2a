@@ -58,7 +58,7 @@ export interface WorkflowExecution {
   id: string;
   requestId: string;
   type: 'process' | 'summarize' | 'analyze' | 'web-search' | 'news-search' | 'scholarly-search' | 'deep-research';
-  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'partial';
+  status: 'pending' | 'in_progress' | 'awaiting_approval' | 'completed' | 'failed' | 'partial';
   steps: WorkflowStep[];
   metadata: {
     initiatedBy: string;

@@ -1,5 +1,10 @@
 import express from 'express';
 import { Langfuse } from 'langfuse';
+import {
+  ApprovalExpiredError,
+  ApprovalRejectedError,
+  GovernanceHaltError,
+} from '@openbox-ai/openbox-mastra-sdk';
 import { 
   createWorkflowExecution, 
   completeWorkflowExecution,
@@ -9,9 +14,13 @@ import { asyncTasks } from '../mastra/workflows/asyncTaskManager.js';
 import type { AsyncTask } from '../mastra/workflows/asyncTaskManager.js';
 import {
   resolveGatewayRequestSubmission,
-  runResolvedGatewayRequestWorkflow,
+  startResolvedGatewayRequestWorkflow,
+  isSuspendedWorkflowResult,
 } from '../mastra/workflows/requestWorkflowRunner.js';
-import { runDeepResearchWorkflow } from '../mastra/workflows/deepResearchRunner.js';
+import {
+  startDeepResearchWorkflow,
+} from '../mastra/workflows/deepResearchRunner.js';
+import { trackPendingWorkflowRun } from '../mastra/workflows/pendingWorkflowRuns.js';
 
 const router = express.Router();
 
@@ -27,6 +36,63 @@ const langfuse = new Langfuse({
 
 function getRequestPayloadSize(payload: unknown): number {
   return payload == null ? 0 : JSON.stringify(payload).length;
+}
+
+function buildApprovalPendingTask(
+  taskId: string,
+  type: string,
+  traceId: string,
+  workflowExecutionId?: string,
+  suspendPayload?: unknown
+): AsyncTask {
+  return {
+    id: taskId,
+    type,
+    status: 'awaiting_approval',
+    progress: 0,
+    currentPhase: 'approval',
+    phases: ['approval'],
+    startedAt: new Date().toISOString(),
+    metadata: {
+      traceId,
+      suspendPayload,
+    },
+    workflowExecutionId,
+  };
+}
+
+function classifyGatewayError(error: unknown): {
+  message: string;
+  statusCode: number;
+} {
+  if (
+    error instanceof GovernanceHaltError ||
+    error instanceof ApprovalRejectedError
+  ) {
+    return {
+      message: error.message,
+      statusCode: 403,
+    };
+  }
+
+  if (error instanceof ApprovalExpiredError) {
+    return {
+      message: error.message,
+      statusCode: 409,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      statusCode: 500,
+    };
+  }
+
+  return {
+    message: 'Unknown error',
+    statusCode: 500,
+  };
 }
 
 // Main request handler
@@ -106,12 +172,30 @@ router.post('/', async (req, res) => {
 
       asyncTasks.set(taskId, task);
 
-      runDeepResearchWorkflow({
+      startDeepResearchWorkflow({
         topic,
         options: resolvedRequest.options || {},
         audienceType: resolvedRequest.audienceType,
         taskId,
-      }).catch(error => {
+      })
+        .then(execution => {
+          if (isSuspendedWorkflowResult(execution.result)) {
+            const pendingTask = asyncTasks.get(taskId);
+            if (!pendingTask) {
+              return;
+            }
+
+            pendingTask.status = 'awaiting_approval';
+            pendingTask.currentPhase = 'approval';
+            pendingTask.metadata = {
+              ...(pendingTask.metadata || {}),
+              suspendPayload: execution.result.suspendPayload,
+            };
+            asyncTasks.set(taskId, pendingTask);
+            trackPendingWorkflowRun(taskId, execution.run, execution.result);
+          }
+        })
+        .catch(error => {
         console.error(`Deep Research workflow error for task ${taskId}:`, error);
         const failedTask = asyncTasks.get(taskId);
         if (!failedTask) {
@@ -154,7 +238,66 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const result = await runResolvedGatewayRequestWorkflow(resolvedRequest);
+    const workflowRun = await startResolvedGatewayRequestWorkflow(resolvedRequest);
+
+    if (isSuspendedWorkflowResult(workflowRun.result)) {
+      const taskId = `approval-task-${Date.now()}-${crypto.randomUUID()}`;
+      const approvalTask = buildApprovalPendingTask(
+        taskId,
+        resolvedRequest.type,
+        trace.id,
+        workflowExecution?.id,
+        workflowRun.result.suspendPayload
+      );
+
+      asyncTasks.set(taskId, approvalTask);
+      trackPendingWorkflowRun(taskId, workflowRun.run, workflowRun.result);
+
+      trace.event({
+        name: 'request-awaiting-approval',
+        metadata: {
+          type: resolvedRequest.type,
+          taskId,
+          workflowExecutionId: workflowExecution?.id,
+        },
+      });
+
+      return res.status(202).json({
+        status: 'accepted',
+        type: resolvedRequest.type,
+        taskId,
+        pollUrl: `/api/gateway/task/${taskId}`,
+        steps: {
+          total: 1,
+          current: 0,
+          phases: ['approval'],
+        },
+        metadata: {
+          acceptedAt: new Date().toISOString(),
+          gateway: AGENT_ID,
+          traceId: trace.id,
+          workflowExecutionId: workflowExecution?.id,
+        },
+      });
+    }
+
+    if (
+      workflowRun.result &&
+      typeof workflowRun.result === 'object' &&
+      'status' in workflowRun.result &&
+      workflowRun.result.status !== 'success'
+    ) {
+      throw new Error(
+        `Gateway workflow ${workflowRun.workflowId} failed with status ${workflowRun.result.status}`
+      );
+    }
+
+    const result =
+      workflowRun.result &&
+      typeof workflowRun.result === 'object' &&
+      'result' in workflowRun.result
+        ? workflowRun.result.result
+        : workflowRun.result;
 
     console.log(`Gateway completed ${resolvedRequest.type} request`);
     
@@ -189,13 +332,14 @@ router.post('/', async (req, res) => {
 
   } catch (error) {
     console.error('Gateway error:', error);
+    const classifiedError = classifyGatewayError(error);
     
     // Complete workflow execution with error
     if (workflowExecution) {
       completeWorkflowExecution(
         workflowExecution.id, 
         undefined, 
-        error instanceof Error ? error.message : 'Unknown error'
+        classifiedError.message
       );
     }
     
@@ -209,9 +353,9 @@ router.post('/', async (req, res) => {
       },
     });
     
-    res.status(500).json({ 
+    res.status(classifiedError.statusCode).json({
       status: 'error', 
-      message: error instanceof Error ? error.message : 'Unknown error',
+      message: classifiedError.message,
       gateway: AGENT_ID,
       traceId: trace.id,
       workflowExecutionId: workflowExecution?.id,

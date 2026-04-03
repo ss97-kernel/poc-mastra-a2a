@@ -25,12 +25,19 @@ export const dataProcessingTaskWorkflowInputSchema = processTaskSchema.extend({
   taskId: z.string(),
   parentTraceId: z.string().optional(),
 });
+const dataProcessingTaskWorkflowEnvelopeSchema = z.tuple([
+  dataProcessingTaskWorkflowInputSchema,
+]);
 
 export const langfuse = new Langfuse({
   publicKey: process.env.LANGFUSE_PUBLIC_KEY,
   secretKey: process.env.LANGFUSE_SECRET_KEY,
   baseUrl: process.env.LANGFUSE_BASEURL || 'https://cloud.langfuse.com',
 });
+
+function unwrapSingle<T>(inputData: [T]): T {
+  return inputData[0];
+}
 
 export function buildPrompt(task: z.infer<typeof processTaskSchema>): string {
   switch (task.type) {
@@ -110,17 +117,18 @@ export function buildPrompt(task: z.infer<typeof processTaskSchema>): string {
 const executeDataProcessingTaskStep = createStep({
   id: 'execute-data-processing-task',
   description: 'Run the data processor agent against the requested task.',
-  inputSchema: dataProcessingTaskWorkflowInputSchema,
+  inputSchema: dataProcessingTaskWorkflowEnvelopeSchema,
   outputSchema: z.any(),
   execute: async ({ mastra, inputData }) => {
+    const task = unwrapSingle(inputData);
     const trace = langfuse.trace({
-      id: inputData.parentTraceId || undefined,
+      id: task.parentTraceId || undefined,
       name: 'data-processing-task',
       metadata: {
         agent: AGENT_NAME,
         agentId: AGENT_ID,
-        taskId: inputData.taskId,
-        taskType: inputData.type,
+        taskId: task.taskId,
+        taskType: task.type,
       },
       tags: ['data-processor', 'processing-task'],
     });
@@ -128,20 +136,20 @@ const executeDataProcessingTaskStep = createStep({
     trace.event({
       name: 'task-validated',
       metadata: {
-        type: inputData.type,
-        dataSize: JSON.stringify(inputData.data).length,
-        hasContext: !!inputData.context,
+        type: task.type,
+        dataSize: JSON.stringify(task.data).length,
+        hasContext: !!task.context,
       },
     });
 
-    const prompt = buildPrompt(inputData);
+    const prompt = buildPrompt(task);
     const generation = trace.generation({
       name: 'data-processing-llm-call',
       model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
       input: [{ role: 'user', content: prompt }],
       metadata: {
         promptLength: prompt.length,
-        processingType: inputData.type,
+        processingType: task.type,
       },
     });
 
@@ -167,8 +175,8 @@ const executeDataProcessingTaskStep = createStep({
         result: result.text,
         metadata: {
           completedAt: new Date().toISOString(),
-          processingType: inputData.type,
-          originalDataSize: JSON.stringify(inputData.data).length,
+          processingType: task.type,
+          originalDataSize: JSON.stringify(task.data).length,
           traceId: trace.id,
           usage: result.usage || {},
         },
@@ -184,7 +192,7 @@ const executeDataProcessingTaskStep = createStep({
 
       return {
         task: {
-          id: inputData.taskId,
+          id: task.taskId,
           status: {
             state: 'completed',
             timestamp: new Date().toISOString(),
@@ -230,7 +238,7 @@ const executeDataProcessingTaskStep = createStep({
 export const dataProcessingTaskWorkflow = createWorkflow({
   id: DATA_PROCESSOR_TASK_WORKFLOW_ID,
   description: 'Governed workflow for A2A data processing tasks.',
-  inputSchema: dataProcessingTaskWorkflowInputSchema,
+  inputSchema: dataProcessingTaskWorkflowEnvelopeSchema,
   outputSchema: z.any(),
 })
   .then(executeDataProcessingTaskStep)

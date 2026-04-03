@@ -3,7 +3,7 @@ import {
   GATEWAY_DEEP_RESEARCH_WORKFLOW_ID,
 } from './requestWorkflows.js';
 
-export async function runDeepResearchWorkflow(input: {
+export async function startDeepResearchWorkflow(input: {
   topic: string;
   audienceType?: 'technical' | 'executive' | 'general';
   options?: Record<string, unknown>;
@@ -22,11 +22,26 @@ export async function runDeepResearchWorkflow(input: {
     inputData: [input],
   });
 
-  if ('status' in result && result.status !== 'success') {
+  return {
+    workflowId: GATEWAY_DEEP_RESEARCH_WORKFLOW_ID,
+    run,
+    result,
+  };
+}
+
+export async function runDeepResearchWorkflow(input: {
+  topic: string;
+  audienceType?: 'technical' | 'executive' | 'general';
+  options?: Record<string, unknown>;
+  taskId?: string;
+}) {
+  const execution = await startDeepResearchWorkflow(input);
+
+  if ('status' in execution.result && execution.result.status !== 'success') {
     throw new Error(
-      `Gateway workflow ${GATEWAY_DEEP_RESEARCH_WORKFLOW_ID} failed with status ${result.status}`
+      `Gateway workflow ${GATEWAY_DEEP_RESEARCH_WORKFLOW_ID} failed with status ${execution.result.status}`
     );
   }
 
-  return 'result' in result ? result.result : result;
+  return 'result' in execution.result ? execution.result.result : execution.result;
 }
