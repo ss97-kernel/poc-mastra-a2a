@@ -239,13 +239,41 @@ async function executeWorkflow(
     inputData: inputData as never,
   });
 
-  if ('status' in result && result.status !== 'success') {
-    throw new Error(
-      `Gateway workflow ${workflowId} failed with status ${result.status}`
-    );
+  return {
+    workflowId,
+    run,
+    result,
+  };
+}
+
+export function isSuspendedWorkflowResult(
+  result: unknown
+): result is { status: 'suspended'; suspendPayload?: unknown } {
+  return (
+    result !== null &&
+    typeof result === 'object' &&
+    'status' in result &&
+    (result as { status?: unknown }).status === 'suspended'
+  );
+}
+
+function unwrapSuccessfulWorkflowResult(result: unknown) {
+  if (
+    result !== null &&
+    typeof result === 'object' &&
+    'result' in result
+  ) {
+    return (result as { result: unknown }).result;
   }
 
-  return 'result' in result ? result.result : result;
+  return result;
+}
+
+export async function startResolvedGatewayRequestWorkflow(
+  request: GatewayResolvedRequest
+) {
+  const workflowId = getWorkflowIdForRequest(request.type);
+  return executeWorkflow(workflowId, [request]);
 }
 
 export async function resolveGatewayRequestSubmission(
@@ -264,8 +292,22 @@ export async function resolveGatewayRequestSubmission(
 export async function runResolvedGatewayRequestWorkflow(
   request: GatewayResolvedRequest
 ) {
-  const workflowId = getWorkflowIdForRequest(request.type);
-  return executeWorkflow(workflowId, [request]);
+  const execution = await startResolvedGatewayRequestWorkflow(request);
+
+  if (
+    execution.result !== null &&
+    typeof execution.result === 'object' &&
+    'status' in execution.result &&
+    (execution.result as { status?: unknown }).status !== 'success'
+  ) {
+    throw new Error(
+      `Gateway workflow ${execution.workflowId} failed with status ${
+        (execution.result as { status?: unknown }).status
+      }`
+    );
+  }
+
+  return unwrapSuccessfulWorkflowResult(execution.result);
 }
 
 export async function runGatewayRequestWorkflow(request: unknown) {

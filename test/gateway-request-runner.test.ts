@@ -176,4 +176,48 @@ describe("gateway request workflow runner", () => {
       })
     );
   });
+
+  it("surfaces suspended workflow runs so the gateway can hand off to task polling", async () => {
+    const suspendedResult = {
+      status: "suspended",
+      suspendPayload: {
+        "route-to-web-search": {
+          openbox: {
+            approvalId: "approval-123",
+            workflowId: "gateway-search-request-workflow",
+          },
+        },
+      },
+    };
+    const run = {
+      runId: "gateway-run-1",
+      start: vi.fn(async () => suspendedResult),
+    };
+    const createRun = vi.fn(async () => run);
+    const getWorkflow = vi.fn(() => ({ createRun }));
+    const getAgent = vi.fn();
+
+    vi.doMock("../agents/gateway/src/mastra/index.js", () => ({
+      mastra: {
+        getWorkflow,
+        getAgent,
+      },
+    }));
+
+    const { startResolvedGatewayRequestWorkflow } = await import(
+      "../agents/gateway/src/mastra/workflows/requestWorkflowRunner.ts"
+    );
+
+    const execution = await startResolvedGatewayRequestWorkflow({
+      type: "web-search",
+      query: "latest ai infrastructure trends",
+      data: "latest ai infrastructure trends",
+    });
+
+    expect(getWorkflow).toHaveBeenCalledWith(
+      "gateway-search-request-workflow"
+    );
+    expect(execution.run).toBe(run);
+    expect(execution.result).toEqual(suspendedResult);
+  });
 });

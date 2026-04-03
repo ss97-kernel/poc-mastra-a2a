@@ -1,6 +1,11 @@
 import express from 'express';
 import { mastra } from '../mastra/index.js';
 import { asyncTasks } from '../mastra/workflows/asyncTaskManager.js';
+import {
+  pendingWorkflowRuns,
+  resumePendingWorkflowRun,
+} from '../mastra/workflows/pendingWorkflowRuns.js';
+import { completeWorkflowExecution } from '../mastra/workflows/workflowManager.js';
 import { getAgentCard } from '../utils/mastraA2AClient.js';
 
 const router = express.Router();
@@ -200,16 +205,64 @@ router.post('/task', async (req, res) => {
 });
 
 // Get Task endpoint
-router.get('/task/:taskId', (req, res) => {
+router.get('/task/:taskId', async (req, res) => {
   const { taskId } = req.params;
   
   // Check if this is an async task we're managing
   const asyncTask = asyncTasks.get(taskId);
   if (asyncTask) {
+    if (
+      asyncTask.status === 'awaiting_approval' &&
+      pendingWorkflowRuns.has(taskId)
+    ) {
+      const resumeResult = await resumePendingWorkflowRun(taskId);
+
+      if (resumeResult.status === 'completed') {
+        asyncTask.status = 'completed';
+        asyncTask.progress = 100;
+        asyncTask.currentPhase = 'completed';
+        asyncTask.result = resumeResult.result;
+        asyncTask.completedAt = new Date().toISOString();
+        asyncTask.error = undefined;
+
+        if (asyncTask.workflowExecutionId) {
+          completeWorkflowExecution(
+            asyncTask.workflowExecutionId,
+            resumeResult.result
+          );
+        }
+
+        asyncTasks.set(taskId, asyncTask);
+      } else if (resumeResult.status === 'failed') {
+        asyncTask.status = 'failed';
+        asyncTask.error = resumeResult.message;
+        asyncTask.completedAt = new Date().toISOString();
+
+        if (asyncTask.workflowExecutionId) {
+          completeWorkflowExecution(
+            asyncTask.workflowExecutionId,
+            undefined,
+            resumeResult.message
+          );
+        }
+
+        asyncTasks.set(taskId, asyncTask);
+      } else {
+        asyncTask.status = 'awaiting_approval';
+        asyncTask.currentPhase = 'approval';
+        asyncTask.error = undefined;
+        asyncTasks.set(taskId, asyncTask);
+      }
+    }
+
     // Convert async task to A2A format
-    const state = asyncTask.status === 'working' ? 'working' : 
-                  asyncTask.status === 'completed' ? 'completed' :
-                  asyncTask.status === 'cancelled' ? 'failed' : 'failed';
+    const state = asyncTask.status === 'working' || asyncTask.status === 'awaiting_approval'
+      ? 'working'
+      : asyncTask.status === 'completed'
+        ? 'completed'
+        : asyncTask.status === 'cancelled'
+          ? 'failed'
+          : 'failed';
     const phaseNameMap: Record<string, string> = {
       'search': 'Web Search Phase',
       'analyze': 'Data Analysis Phase',
@@ -217,12 +270,17 @@ router.get('/task/:taskId', (req, res) => {
       'completed': 'Completed'
     };
     
-    const statusText = asyncTask.status === 'working' ? 
-      `${phaseNameMap[asyncTask.currentPhase] || asyncTask.currentPhase} (${asyncTask.progress}%)` :
-      asyncTask.status === 'completed' ? 'Deep Research completed' :
-      asyncTask.status === 'cancelled' ? 'Task cancelled' :
-      asyncTask.status === 'failed' ? `Failed: ${asyncTask.error}` :
-      'Starting task';
+    const statusText = asyncTask.status === 'working'
+      ? `${phaseNameMap[asyncTask.currentPhase] || asyncTask.currentPhase} (${asyncTask.progress}%)`
+      : asyncTask.status === 'awaiting_approval'
+        ? 'Awaiting approval in OpenBox'
+        : asyncTask.status === 'completed'
+          ? 'Deep Research completed'
+          : asyncTask.status === 'cancelled'
+            ? 'Task cancelled'
+            : asyncTask.status === 'failed'
+              ? `Failed: ${asyncTask.error}`
+              : 'Starting task';
     
     return res.json({
       task: {
@@ -288,7 +346,11 @@ router.delete('/task/:taskId', (req, res) => {
   // Check if this is an async task we're managing
   const asyncTask = asyncTasks.get(taskId);
   if (asyncTask) {
-    if (asyncTask.status === 'working') {
+    pendingWorkflowRuns.delete(taskId);
+    if (
+      asyncTask.status === 'working' ||
+      asyncTask.status === 'awaiting_approval'
+    ) {
       asyncTask.status = 'cancelled';
       asyncTask.error = 'Task cancelled by request';
       asyncTask.completedAt = new Date().toISOString();

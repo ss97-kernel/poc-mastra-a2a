@@ -31,12 +31,19 @@ export const summarizationTaskWorkflowInputSchema = summarizeTaskSchema.extend({
   taskId: z.string(),
   parentTraceId: z.string().optional(),
 });
+const summarizationTaskWorkflowEnvelopeSchema = z.tuple([
+  summarizationTaskWorkflowInputSchema,
+]);
 
 export const langfuse = new Langfuse({
   publicKey: process.env.LANGFUSE_PUBLIC_KEY,
   secretKey: process.env.LANGFUSE_SECRET_KEY,
   baseUrl: process.env.LANGFUSE_BASEURL || 'https://cloud.langfuse.com',
 });
+
+function unwrapSingle<T>(inputData: [T]): T {
+  return inputData[0];
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -337,18 +344,19 @@ export function buildPrompt(task: z.infer<typeof summarizeTaskSchema>): string {
 const executeSummarizationTaskStep = createStep({
   id: 'execute-summarization-task',
   description: 'Run the summarizer agent against the requested task.',
-  inputSchema: summarizationTaskWorkflowInputSchema,
+  inputSchema: summarizationTaskWorkflowEnvelopeSchema,
   outputSchema: z.any(),
   execute: async ({ mastra, inputData }) => {
-    const audienceType = inputData.audienceType || 'general';
+    const task = unwrapSingle(inputData);
+    const audienceType = task.audienceType || 'general';
     const trace = langfuse.trace({
-      id: inputData.parentTraceId || undefined,
+      id: task.parentTraceId || undefined,
       name: 'summarization-task',
       metadata: {
         agent: AGENT_NAME,
         agentId: AGENT_ID,
-        taskId: inputData.taskId,
-        taskType: inputData.type,
+        taskId: task.taskId,
+        taskType: task.type,
       },
       tags: ['summarizer', 'summarization-task'],
     });
@@ -356,21 +364,21 @@ const executeSummarizationTaskStep = createStep({
     trace.event({
       name: 'task-validated',
       metadata: {
-        type: inputData.type,
+        type: task.type,
         audienceType,
-        dataSize: JSON.stringify(inputData.data).length,
-        hasContext: !!inputData.context,
+        dataSize: JSON.stringify(task.data).length,
+        hasContext: !!task.context,
       },
     });
 
-    const prompt = buildPrompt(inputData);
+    const prompt = buildPrompt(task);
     const generation = trace.generation({
       name: 'summarization-llm-call',
       model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
       input: [{ role: 'user', content: prompt }],
       metadata: {
         promptLength: prompt.length,
-        summaryType: inputData.type,
+        summaryType: task.type,
         audienceType,
       },
     });
@@ -398,15 +406,15 @@ const executeSummarizationTaskStep = createStep({
           success: true,
           audienceType,
           processedBy: AGENT_ID,
-          summaryType: inputData.type,
-          originalDataSize: JSON.stringify(inputData.data).length,
+          summaryType: task.type,
+          originalDataSize: JSON.stringify(task.data).length,
           traceId: trace.id,
         },
       });
 
       return {
         task: {
-          id: inputData.taskId,
+          id: task.taskId,
           status: {
             state: 'completed',
             timestamp: new Date().toISOString(),
@@ -426,7 +434,7 @@ const executeSummarizationTaskStep = createStep({
               data: result.text,
               metadata: {
                 completedAt: new Date().toISOString(),
-                summaryType: inputData.type,
+                summaryType: task.type,
                 audienceType,
                 traceId: trace.id,
                 usage: result.usage || {},
@@ -458,7 +466,7 @@ const executeSummarizationTaskStep = createStep({
 export const summarizationTaskWorkflow = createWorkflow({
   id: SUMMARIZER_TASK_WORKFLOW_ID,
   description: 'Governed workflow for A2A summarization tasks.',
-  inputSchema: summarizationTaskWorkflowInputSchema,
+  inputSchema: summarizationTaskWorkflowEnvelopeSchema,
   outputSchema: z.any(),
 })
   .then(executeSummarizationTaskStep)

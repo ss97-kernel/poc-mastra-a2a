@@ -33,7 +33,10 @@ services:
       - OPENBOX_API_KEY=${OPENBOX_GATEWAY_API_KEY}
       - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
       - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_SKIP_SIGNALS=${OPENBOX_SKIP_SIGNALS:-resume}
+      - OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS=${OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS:-5000}
       - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - MASTRA_STORAGE_DIR=${MASTRA_STORAGE_DIR:-/app/.mastra}
       - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
       - DATA_PROCESSOR_URL=http://data-processor:3002
       - SUMMARIZER_URL=http://summarizer:3003
@@ -52,6 +55,7 @@ services:
       - web-search
     volumes:
       - ./agents/gateway/src:/app/src
+      - gateway-mastra-data:/app/.mastra
 
   # Data Processor Agent - Handles data processing tasks
   data-processor:
@@ -72,7 +76,10 @@ services:
       - OPENBOX_API_KEY=${OPENBOX_DATA_PROCESSOR_API_KEY}
       - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
       - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_SKIP_SIGNALS=${OPENBOX_SKIP_SIGNALS:-resume}
+      - OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS=${OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS:-5000}
       - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - MASTRA_STORAGE_DIR=${MASTRA_STORAGE_DIR:-/app/.mastra}
       - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
@@ -81,6 +88,7 @@ services:
       - a2a-network
     volumes:
       - ./agents/data-processor/src:/app/src
+      - data-processor-mastra-data:/app/.mastra
 
   # Summarizer Agent - Summarizes processed data
   summarizer:
@@ -101,7 +109,10 @@ services:
       - OPENBOX_API_KEY=${OPENBOX_SUMMARIZER_API_KEY}
       - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
       - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_SKIP_SIGNALS=${OPENBOX_SKIP_SIGNALS:-resume}
+      - OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS=${OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS:-5000}
       - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - MASTRA_STORAGE_DIR=${MASTRA_STORAGE_DIR:-/app/.mastra}
       - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
@@ -110,6 +121,7 @@ services:
       - a2a-network
     volumes:
       - ./agents/summarizer/src:/app/src
+      - summarizer-mastra-data:/app/.mastra
 
   # Web Search Agent - Real-time web search and information retrieval
   web-search:
@@ -131,7 +143,10 @@ services:
       - OPENBOX_API_KEY=${OPENBOX_WEB_SEARCH_API_KEY}
       - OPENBOX_DEBUG=${OPENBOX_DEBUG:-false}
       - OPENBOX_GOVERNANCE_POLICY=${OPENBOX_GOVERNANCE_POLICY:-fail_open}
+      - OPENBOX_SKIP_SIGNALS=${OPENBOX_SKIP_SIGNALS:-resume}
+      - OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS=${OPENBOX_APPROVAL_RESUME_POLL_INTERVAL_MS:-5000}
       - OPENBOX_VALIDATE=${OPENBOX_VALIDATE:-true}
+      - MASTRA_STORAGE_DIR=${MASTRA_STORAGE_DIR:-/app/.mastra}
       - A2A_JSON_BODY_LIMIT=${A2A_JSON_BODY_LIMIT:-2mb}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
@@ -140,7 +155,14 @@ services:
       - a2a-network
     volumes:
       - ./agents/web-search/src:/app/src
+      - web-search-mastra-data:/app/.mastra
 
 networks:
   a2a-network:
     driver: bridge
+
+volumes:
+  gateway-mastra-data:
+  data-processor-mastra-data:
+  summarizer-mastra-data:
+  web-search-mastra-data:

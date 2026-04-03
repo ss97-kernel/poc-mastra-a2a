@@ -9,18 +9,19 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "@mastra/core": "1.16.0",
-    "mastra": "1.3.15",
+    "@ai-sdk/openai": "^3.0.48",
     "@mastra/client-js": "1.10.0",
+    "@mastra/core": "1.16.0",
+    "@mastra/libsql": "^1.7.3",
     "@mastra/mcp": "1.3.1",
     "@openbox-ai/openbox-mastra-sdk": "0.1.0",
-    "@ai-sdk/openai": "^3.0.48",
     "ai": "^5.0.160",
-    "express": "^4.21.2",
-    "zod": "^3.23.8",
+    "axios": "^1.7.9",
     "dotenv": "^16.4.7",
+    "express": "^4.21.2",
     "langfuse": "^3.37.6",
-    "axios": "^1.7.9"
+    "mastra": "1.3.15",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
