@@ -1,3 +1,4 @@
+import '../openboxEnv.js';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { Mastra } from '@mastra/core/mastra';
@@ -15,6 +16,18 @@ import {
 // Get agent configuration from environment
 const AGENT_ID = process.env.AGENT_ID || 'gateway-agent-01';
 const STORAGE_DIR = process.env.MASTRA_STORAGE_DIR || '.mastra';
+
+function resolveIgnoredUrls(): string[] {
+  return [
+    process.env.OPENAI_BASE_URL || 'https://api.openai.com',
+    process.env.DATA_PROCESSOR_URL,
+    process.env.SUMMARIZER_URL,
+    process.env.WEB_SEARCH_URL,
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map(value => value.trim())
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
 
 mkdirSync(STORAGE_DIR, { recursive: true });
 
@@ -38,6 +51,8 @@ const baseMastra = new Mastra({
   },
 });
 
-export const mastra = await withOpenBox(baseMastra);
+export const mastra = await withOpenBox(baseMastra, {
+  ignoredUrls: resolveIgnoredUrls(),
+});
 
 console.log(`Mastra initialized successfully with gateway agent registered as ${AGENT_ID}`);

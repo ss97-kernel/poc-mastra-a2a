@@ -21,6 +21,12 @@ OPENBOX_SUMMARIZER_API_KEY=...
 OPENBOX_WEB_SEARCH_API_KEY=...
 ```
 
+If you want to run the frontend outside Docker while the gateway is on the host machine, also set:
+
+```env
+GATEWAY_URL=http://localhost:3001
+```
+
 Add this if you want search-backed flows:
 
 ```env
@@ -121,3 +127,7 @@ npm run stop
 ### The UI works but OpenBox is empty
 
 - Check that all four OpenBox API keys are valid and mapped to the right runtime.
+
+### The frontend cannot reach the gateway outside Docker
+
+- Set `GATEWAY_URL=http://localhost:3001` before starting the frontend.

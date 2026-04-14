@@ -11,7 +11,7 @@ This repository is a public proof of concept for governed multi-agent systems bu
 
 The demo exposes a prompt-only UI. A gateway agent classifies each user request, routes it to the right specialist agent, and returns the result through a single web application.
 
-![Demo](docs/images/demo.gif)
+Demo recording: [demo.mov](./docs/images/demo.mov)
 
 ## What The Demo Includes
 
@@ -30,6 +30,7 @@ The stack runs four agent services plus a frontend:
 - OpenAI API key
 - OpenBox deployment
 - four OpenBox API keys, one for each runtime
+- four agent DIDs and four agent private keys if your OpenBox deployment enforces DID-signed SDK requests
 - Brave Search API key if you want search or deep-research flows
 - Langfuse credentials if you want tracing
 
@@ -52,6 +53,25 @@ OPENBOX_GATEWAY_API_KEY=...
 OPENBOX_DATA_PROCESSOR_API_KEY=...
 OPENBOX_SUMMARIZER_API_KEY=...
 OPENBOX_WEB_SEARCH_API_KEY=...
+```
+
+If you run the frontend outside Docker and point it at a host-side gateway, also set:
+
+```env
+GATEWAY_URL=http://localhost:3001
+```
+
+If your OpenBox deployment has agent DID verification enabled, also fill:
+
+```env
+OPENBOX_GATEWAY_AGENT_DID=did:aip:...
+OPENBOX_GATEWAY_AGENT_PRIVATE_KEY=...
+OPENBOX_DATA_PROCESSOR_AGENT_DID=did:aip:...
+OPENBOX_DATA_PROCESSOR_AGENT_PRIVATE_KEY=...
+OPENBOX_SUMMARIZER_AGENT_DID=did:aip:...
+OPENBOX_SUMMARIZER_AGENT_PRIVATE_KEY=...
+OPENBOX_WEB_SEARCH_AGENT_DID=did:aip:...
+OPENBOX_WEB_SEARCH_AGENT_PRIVATE_KEY=...
 ```
 
 3. Add optional values if you want search or tracing:
@@ -97,6 +117,8 @@ Register each runtime separately in OpenBox and use one API key per runtime:
 
 This demo is intentionally multi-runtime. Gateway and child agents appear as separate governed services in OpenBox.
 
+If DID signing is enabled in OpenBox, save the DID and private key returned for each runtime when you register it. Each container maps its runtime-specific DID values into the generic SDK env vars `OPENBOX_AGENT_DID` and `OPENBOX_AGENT_PRIVATE_KEY`.
+
 ## What To Test In The UI
 
 The UI accepts a plain prompt. The gateway resolves the intent and routes automatically.
@@ -139,6 +161,8 @@ This POC consumes the published OpenBox Mastra SDK from npm:
 
 You do not need a sibling checkout of the SDK repository to build or run this demo.
 
+For local validation of unreleased SDK changes, install the current SDK build into this repo before starting the agent services.
+
 ## Repository Structure
 
 ```text
@@ -167,6 +191,7 @@ npm run build --workspace @a2a-demo/web-search-agent
 ## Troubleshooting
 
 - If OpenBox shows no traffic, make sure `OPENBOX_URL` is reachable from Docker containers. `localhost` is usually wrong inside containers.
+- If you run the frontend outside Docker, set `GATEWAY_URL=http://localhost:3001` so the UI can proxy requests to the host-side gateway.
 - If search requests fail, check that `BRAVE_SEARCH_API_KEY` is set.
 - If deep research fails on large payloads, increase `A2A_JSON_BODY_LIMIT` in [`.env`](./.env).
 - If the UI loads but requests fail, inspect the gateway logs:

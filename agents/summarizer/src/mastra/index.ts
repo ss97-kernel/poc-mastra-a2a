@@ -1,3 +1,4 @@
+import '../openboxEnv.js';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { Mastra } from '@mastra/core/mastra';
@@ -11,6 +12,13 @@ const AGENT_ID = process.env.AGENT_ID || 'summarizer-agent-01';
 const PORT = Number.parseInt(process.env.PORT || '4111', 10);
 const HOST = process.env.MASTRA_HOST || '0.0.0.0';
 const STORAGE_DIR = process.env.MASTRA_STORAGE_DIR || '.mastra';
+
+function resolveIgnoredUrls(): string[] {
+  return [process.env.OPENAI_BASE_URL || 'https://api.openai.com']
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map(value => value.trim())
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
 
 mkdirSync(STORAGE_DIR, { recursive: true });
 
@@ -34,6 +42,8 @@ const baseMastra = new Mastra({
   },
 });
 
-export const mastra = await withOpenBox(baseMastra);
+export const mastra = await withOpenBox(baseMastra, {
+  ignoredUrls: resolveIgnoredUrls(),
+});
 
 console.log(`Mastra initialized successfully with summarizer agent registered as ${AGENT_ID}`);

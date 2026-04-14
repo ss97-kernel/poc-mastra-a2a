@@ -39,11 +39,20 @@ describe("OpenBox runtime wiring", () => {
   it("documents the shared OpenBox URL and per-agent API keys", () => {
     const envExample = readFileSync(resolve(REPO_ROOT, ".env.example"), "utf8");
 
+    expect(envExample).toContain("GATEWAY_URL=");
     expect(envExample).toContain("OPENBOX_URL=");
     expect(envExample).toContain("OPENBOX_GATEWAY_API_KEY=");
     expect(envExample).toContain("OPENBOX_DATA_PROCESSOR_API_KEY=");
     expect(envExample).toContain("OPENBOX_SUMMARIZER_API_KEY=");
     expect(envExample).toContain("OPENBOX_WEB_SEARCH_API_KEY=");
+    expect(envExample).toContain("OPENBOX_GATEWAY_AGENT_DID=");
+    expect(envExample).toContain("OPENBOX_GATEWAY_AGENT_PRIVATE_KEY=");
+    expect(envExample).toContain("OPENBOX_DATA_PROCESSOR_AGENT_DID=");
+    expect(envExample).toContain("OPENBOX_DATA_PROCESSOR_AGENT_PRIVATE_KEY=");
+    expect(envExample).toContain("OPENBOX_SUMMARIZER_AGENT_DID=");
+    expect(envExample).toContain("OPENBOX_SUMMARIZER_AGENT_PRIVATE_KEY=");
+    expect(envExample).toContain("OPENBOX_WEB_SEARCH_AGENT_DID=");
+    expect(envExample).toContain("OPENBOX_WEB_SEARCH_AGENT_PRIVATE_KEY=");
   });
 
   it("passes OpenBox settings into each runtime through docker-compose", () => {
@@ -57,13 +66,37 @@ describe("OpenBox runtime wiring", () => {
       "OPENBOX_API_KEY=${OPENBOX_GATEWAY_API_KEY}"
     );
     expect(compose).toContain(
+      "OPENBOX_AGENT_DID=${OPENBOX_GATEWAY_AGENT_DID:-}"
+    );
+    expect(compose).toContain(
+      "OPENBOX_AGENT_PRIVATE_KEY=${OPENBOX_GATEWAY_AGENT_PRIVATE_KEY:-}"
+    );
+    expect(compose).toContain(
       "OPENBOX_API_KEY=${OPENBOX_DATA_PROCESSOR_API_KEY}"
+    );
+    expect(compose).toContain(
+      "OPENBOX_AGENT_DID=${OPENBOX_DATA_PROCESSOR_AGENT_DID:-}"
+    );
+    expect(compose).toContain(
+      "OPENBOX_AGENT_PRIVATE_KEY=${OPENBOX_DATA_PROCESSOR_AGENT_PRIVATE_KEY:-}"
     );
     expect(compose).toContain(
       "OPENBOX_API_KEY=${OPENBOX_SUMMARIZER_API_KEY}"
     );
     expect(compose).toContain(
+      "OPENBOX_AGENT_DID=${OPENBOX_SUMMARIZER_AGENT_DID:-}"
+    );
+    expect(compose).toContain(
+      "OPENBOX_AGENT_PRIVATE_KEY=${OPENBOX_SUMMARIZER_AGENT_PRIVATE_KEY:-}"
+    );
+    expect(compose).toContain(
       "OPENBOX_API_KEY=${OPENBOX_WEB_SEARCH_API_KEY}"
+    );
+    expect(compose).toContain(
+      "OPENBOX_AGENT_DID=${OPENBOX_WEB_SEARCH_AGENT_DID:-}"
+    );
+    expect(compose).toContain(
+      "OPENBOX_AGENT_PRIVATE_KEY=${OPENBOX_WEB_SEARCH_AGENT_PRIVATE_KEY:-}"
     );
   });
 
@@ -80,4 +113,16 @@ describe("OpenBox runtime wiring", () => {
       expect(dockerfile).not.toContain("COPY openbox-mastra-sdk");
     }
   );
+
+  it("lets the frontend proxy through a configurable gateway URL", () => {
+    const nextConfig = readFileSync(
+      resolve(REPO_ROOT, "frontend/next.config.ts"),
+      "utf8"
+    );
+
+    expect(nextConfig).toContain(
+      "const gatewayUrl = process.env.GATEWAY_URL || 'http://gateway:3001'"
+    );
+    expect(nextConfig).toContain("destination: `${gatewayUrl}/api/:path*`");
+  });
 });
