@@ -4,6 +4,8 @@ import {
   ApprovalPendingError,
   ApprovalRejectedError,
   GovernanceHaltError,
+  parseOpenBoxA2AInboundMetadata,
+  runWithOpenBoxEventMetadata,
 } from '@openbox-ai/openbox-mastra-sdk';
 import { mastra } from '../mastra/index.js';
 import {
@@ -21,6 +23,7 @@ export const tasks = new Map<string, any>();
 const pendingRuns = new Map<
   string,
   {
+    peerMetadata?: Record<string, unknown>;
     run: {
       resume: (args: { resumeData?: unknown; step?: string }) => Promise<unknown>;
     };
@@ -101,7 +104,11 @@ function extractSuspendedStep(result: {
   return firstStep;
 }
 
-async function startGovernedTask(taskData: any, taskId: string) {
+async function startGovernedTask(
+  taskData: any,
+  taskId: string,
+  peerMetadata?: Record<string, unknown>
+) {
   const workflow = mastra.getWorkflow(SUMMARIZER_TASK_WORKFLOW_ID);
   if (!workflow) {
     throw new Error(`Workflow ${SUMMARIZER_TASK_WORKFLOW_ID} is not registered`);
@@ -112,9 +119,11 @@ async function startGovernedTask(taskData: any, taskId: string) {
     ...taskData,
     taskId,
   });
-  const result = await run.start({
-    inputData: [workflowInput],
-  });
+  const result = await runWithOpenBoxEventMetadata(peerMetadata, async () =>
+    run.start({
+      inputData: [workflowInput],
+    })
+  );
 
   if (
     result &&
@@ -123,6 +132,7 @@ async function startGovernedTask(taskData: any, taskId: string) {
     result.status === 'suspended'
   ) {
     pendingRuns.set(taskId, {
+      peerMetadata,
       run,
       step: extractSuspendedStep(result),
       suspendPayload: result.suspendPayload,
@@ -166,13 +176,17 @@ async function resumePendingTask(taskId: string) {
   pending.nextResumeAttemptAt = Date.now() + getResumePollIntervalMs();
 
   try {
-    const resumed = (await pending.run.resume({
-      resumeData: {
-        approved: true,
-        approvedBy: 'openbox-ui',
-      },
-      ...(pending.step ? { step: pending.step } : {}),
-    })) as any;
+    const resumed = (await runWithOpenBoxEventMetadata(
+      pending.peerMetadata,
+      async () =>
+        pending.run.resume({
+          resumeData: {
+            approved: true,
+            approvedBy: 'openbox-ui',
+          },
+          ...(pending.step ? { step: pending.step } : {}),
+        })
+    )) as any;
 
     if (
       resumed &&
@@ -253,8 +267,15 @@ router.post('/task', async (req, res) => {
 
     const taskId = req.body.id || crypto.randomUUID();
     tasks.set(taskId, buildWorkingTask(taskId));
+    const peerMetadata = parseOpenBoxA2AInboundMetadata(req.headers, {
+      fallbackSourceAgentId: req.body.from,
+      target: {
+        agentId: AGENT_ID,
+        agentType: 'summarizer',
+      },
+    });
 
-    startGovernedTask(req.body, taskId).catch(error => {
+    startGovernedTask(req.body, taskId, peerMetadata).catch(error => {
       tasks.set(
         taskId,
         buildFailedTask(
@@ -307,8 +328,15 @@ router.post('/message', async (req, res) => {
 
     const taskId = crypto.randomUUID();
     tasks.set(taskId, buildWorkingTask(taskId));
+    const peerMetadata = parseOpenBoxA2AInboundMetadata(req.headers, {
+      fallbackSourceAgentId: req.body.from,
+      target: {
+        agentId: AGENT_ID,
+        agentType: 'summarizer',
+      },
+    });
 
-    startGovernedTask(taskData, taskId).catch(error => {
+    startGovernedTask(taskData, taskId, peerMetadata).catch(error => {
       tasks.set(
         taskId,
         buildFailedTask(

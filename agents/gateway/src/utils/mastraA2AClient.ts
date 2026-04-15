@@ -1,3 +1,5 @@
+import { buildOpenBoxA2AOutboundContext } from '@openbox-ai/openbox-mastra-sdk';
+
 const AGENT_ID = process.env.AGENT_ID || 'gateway-agent-01';
 
 // Get agent base URLs from environment
@@ -38,15 +40,21 @@ async function sendA2AMessageHTTP(agentType: 'data-processor' | 'summarizer' | '
   const baseUrl = getAgentBaseUrl(agentType);
   
   try {
-    const messageId = crypto.randomUUID();
+    const { headers, requestId } = buildOpenBoxA2AOutboundContext({
+      target: {
+        agentId: getAgentId(agentType),
+        agentType,
+      },
+    });
     
     const response = await fetch(`${baseUrl}/api/a2a/message`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...headers,
       },
       body: JSON.stringify({
-        id: messageId,
+        id: requestId,
         from: AGENT_ID,
         message: {
           role: "user",
@@ -128,11 +136,19 @@ async function sendA2ATaskHTTP(agentType: 'data-processor' | 'summarizer' | 'web
   const baseUrl = getAgentBaseUrl(agentType);
   
   try {
-    const taskId = `task-${Date.now()}`;
+    const { headers, requestId } = buildOpenBoxA2AOutboundContext({
+      requestId: `task-${Date.now()}`,
+      target: {
+        agentId: getAgentId(agentType),
+        agentType,
+      },
+    });
+    const taskId = requestId;
     const response = await fetch(`${baseUrl}/api/a2a/task`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...headers,
       },
       body: JSON.stringify({
         taskId,

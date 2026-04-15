@@ -1,4 +1,5 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows';
+import { withOpenBoxActivityMetadata } from '@openbox-ai/openbox-mastra-sdk';
 import { z } from 'zod';
 import { sendA2AMessage } from '../../utils/mastraA2AClient.js';
 import {
@@ -113,7 +114,35 @@ function unwrapSingle<T>(inputData: [T]): T {
   return inputData[0];
 }
 
-const routeToDataProcessorStep = createStep({
+function outboundPeerMetadata(
+  agentId: string,
+  agentType: 'data-processor' | 'summarizer' | 'web-search'
+) {
+  return {
+    peer_request: {
+      direction: 'outbound',
+      protocol: 'a2a',
+      source: {
+        agent_did: process.env.OPENBOX_AGENT_DID,
+        agent_id: process.env.AGENT_ID || 'gateway-agent-01',
+      },
+      target: {
+        agent_id: agentId,
+        agent_type: agentType,
+      },
+      transport: 'http',
+    },
+  };
+}
+
+const DATA_PROCESSOR_AGENT_ID =
+  process.env.DATA_PROCESSOR_AGENT_ID || 'data-processor-agent-01';
+const SUMMARIZER_AGENT_ID =
+  process.env.SUMMARIZER_AGENT_ID || 'summarizer-agent-01';
+const WEB_SEARCH_AGENT_ID =
+  process.env.WEB_SEARCH_AGENT_ID || 'web-search-agent-01';
+
+const routeToDataProcessorStep = withOpenBoxActivityMetadata(createStep({
   id: 'route-to-data-processor',
   description: 'Send a processing request to the data processor agent over A2A.',
   inputSchema: requestEnvelopeSchema,
@@ -129,9 +158,9 @@ const routeToDataProcessorStep = createStep({
     assertA2ASuccess(response);
     return extractA2AResult(response);
   },
-});
+}), outboundPeerMetadata(DATA_PROCESSOR_AGENT_ID, 'data-processor'));
 
-const routeToSummarizerStep = createStep({
+const routeToSummarizerStep = withOpenBoxActivityMetadata(createStep({
   id: 'route-to-summarizer',
   description: 'Send a summarization request to the summarizer agent over A2A.',
   inputSchema: requestEnvelopeSchema,
@@ -148,9 +177,9 @@ const routeToSummarizerStep = createStep({
     assertA2ASuccess(response);
     return extractA2AResult(response);
   },
-});
+}), outboundPeerMetadata(SUMMARIZER_AGENT_ID, 'summarizer'));
 
-const analyzeDataStep = createStep({
+const analyzeDataStep = withOpenBoxActivityMetadata(createStep({
   id: 'gateway-analyze-data',
   description: 'Send analysis input to the data processor agent.',
   inputSchema: requestEnvelopeSchema,
@@ -171,9 +200,9 @@ const analyzeDataStep = createStep({
       },
     ] as [z.infer<typeof analyzeIntermediateSchema>];
   },
-});
+}), outboundPeerMetadata(DATA_PROCESSOR_AGENT_ID, 'data-processor'));
 
-const summarizeAnalysisStep = createStep({
+const summarizeAnalysisStep = withOpenBoxActivityMetadata(createStep({
   id: 'gateway-summarize-analysis',
   description: 'Create an executive summary from the processed analysis output.',
   inputSchema: analyzeIntermediateEnvelopeSchema,
@@ -207,9 +236,9 @@ const summarizeAnalysisStep = createStep({
       final_result: summary,
     };
   },
-});
+}), outboundPeerMetadata(SUMMARIZER_AGENT_ID, 'summarizer'));
 
-const routeToWebSearchStep = createStep({
+const routeToWebSearchStep = withOpenBoxActivityMetadata(createStep({
   id: 'route-to-web-search',
   description: 'Send a search request to the web search agent over A2A.',
   inputSchema: requestEnvelopeSchema,
@@ -226,7 +255,7 @@ const routeToWebSearchStep = createStep({
     assertA2ASuccess(response);
     return extractA2ASearchResult(response);
   },
-});
+}), outboundPeerMetadata(WEB_SEARCH_AGENT_ID, 'web-search'));
 
 function updateDeepResearchTask(
   taskId: string | undefined,
@@ -245,7 +274,7 @@ function updateDeepResearchTask(
   asyncTasks.set(taskId, task);
 }
 
-const deepResearchSearchStep = createStep({
+const deepResearchSearchStep = withOpenBoxActivityMetadata(createStep({
   id: 'deep-research-search',
   description: 'Collect search material for the requested research topic.',
   inputSchema: deepResearchInputEnvelopeSchema,
@@ -281,9 +310,9 @@ const deepResearchSearchStep = createStep({
     const searchResult = extractA2ASearchResult(response);
     return [searchResult] as [unknown];
   },
-});
+}), outboundPeerMetadata(WEB_SEARCH_AGENT_ID, 'web-search'));
 
-const deepResearchAnalyzeStep = createStep({
+const deepResearchAnalyzeStep = withOpenBoxActivityMetadata(createStep({
   id: 'deep-research-analyze',
   description: 'Analyze the gathered research material with the data processor.',
   inputSchema: z.tuple([z.any()]),
@@ -317,7 +346,7 @@ const deepResearchAnalyzeStep = createStep({
       },
     ] as [z.infer<typeof deepResearchIntermediateSchema>];
   },
-});
+}), outboundPeerMetadata(DATA_PROCESSOR_AGENT_ID, 'data-processor'));
 
 function extractListItems(
   synthesisResult: unknown,
@@ -338,7 +367,7 @@ function extractListItems(
     .slice(0, 5);
 }
 
-const deepResearchSynthesisStep = createStep({
+const deepResearchSynthesisStep = withOpenBoxActivityMetadata(createStep({
   id: 'deep-research-synthesis',
   description: 'Create the final research report with the summarizer agent.',
   inputSchema: deepResearchIntermediateEnvelopeSchema,
@@ -421,7 +450,7 @@ const deepResearchSynthesisStep = createStep({
 
     return finalResult;
   },
-});
+}), outboundPeerMetadata(SUMMARIZER_AGENT_ID, 'summarizer'));
 
 export const gatewayProcessRequestWorkflow = createWorkflow({
   id: GATEWAY_PROCESS_REQUEST_WORKFLOW_ID,
