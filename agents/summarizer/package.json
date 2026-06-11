@@ -13,7 +13,7 @@
     "@ai-sdk/openai": "^3.0.48",
     "@mastra/client-js": "1.10.0",
     "@mastra/core": "1.16.0",
-    "@mastra/libsql": "^1.7.3",
+    "@mastra/libsql": "1.7.3",
     "@openbox-ai/openbox-mastra-sdk": "file:../../../openbox-mastra-sdk",
     "ai": "^5.0.160",
     "dotenv": "^16.4.7",

@@ -19,6 +19,8 @@ services:
     build:
       context: .
       dockerfile: agents/gateway/Dockerfile
+      additional_contexts:
+        openbox-mastra-sdk: ../openbox-mastra-sdk
     container_name: a2a-gateway-agent
     ports:
       - "${GATEWAY_PORT:-3001}:3001"
@@ -64,6 +66,8 @@ services:
     build:
       context: .
       dockerfile: agents/data-processor/Dockerfile
+      additional_contexts:
+        openbox-mastra-sdk: ../openbox-mastra-sdk
     container_name: a2a-data-processor-agent
     ports:
       - "${DATA_PROCESSOR_PORT:-3002}:3002"
@@ -99,6 +103,8 @@ services:
     build:
       context: .
       dockerfile: agents/summarizer/Dockerfile
+      additional_contexts:
+        openbox-mastra-sdk: ../openbox-mastra-sdk
     container_name: a2a-summarizer-agent
     ports:
       - "${SUMMARIZER_PORT:-3003}:3003"
@@ -134,6 +140,8 @@ services:
     build:
       context: .
       dockerfile: agents/web-search/Dockerfile
+      additional_contexts:
+        openbox-mastra-sdk: ../openbox-mastra-sdk
     container_name: a2a-web-search-agent
     ports:
       - "${WEB_SEARCH_PORT:-3004}:3004"

@@ -76,6 +76,10 @@ function extractJsonObject(text: string): unknown {
 function classifyWithHeuristics(prompt: string): GatewayResolvedRequest['type'] {
   const normalized = prompt.toLowerCase();
 
+  if (needsMultiAgentResearch(normalized)) {
+    return 'deep-research';
+  }
+
   if (
     normalized.includes('deep research') ||
     normalized.includes('research report') ||
@@ -155,6 +159,67 @@ function classifyWithHeuristics(prompt: string): GatewayResolvedRequest['type'] 
   return 'summarize';
 }
 
+function includesAny(value: string, needles: string[]): boolean {
+  return needles.some(needle => value.includes(needle));
+}
+
+function needsMultiAgentResearch(normalizedPrompt: string): boolean {
+  if (
+    includesAny(normalizedPrompt, [
+      'all agents',
+      'all three agents',
+      'multi-agent',
+      'multi agent',
+      'search, analyze',
+      'search and analyze',
+      'research and summarize',
+    ])
+  ) {
+    return true;
+  }
+
+  const needsCurrentSources = includesAny(normalizedPrompt, [
+    'current',
+    'latest',
+    'market',
+    'news',
+    'source',
+    'sources',
+    'research',
+    'announcement',
+    'announcements',
+    'external context',
+  ]);
+  const needsAnalysis = includesAny(normalizedPrompt, [
+    'analyze',
+    'analysis',
+    'insight',
+    'insights',
+    'trend',
+    'trends',
+    'risk',
+    'risks',
+    'operational',
+    'context',
+    'impact',
+    'drivers',
+    'forecast',
+  ]);
+  const needsSynthesis = includesAny(normalizedPrompt, [
+    'summarize',
+    'summary',
+    'brief',
+    'briefing',
+    'report',
+    'update',
+    'recommendation',
+    'recommendations',
+    'synthesize',
+  ]);
+
+  return needsCurrentSources && needsAnalysis && needsSynthesis;
+}
+
 async function classifyPromptSubmission(
   submission: PromptSubmission
 ): Promise<GatewayResolvedRequest['type']> {
@@ -174,7 +239,9 @@ async function classifyPromptSubmission(
         '- web-search: general web lookup for current information',
         '- news-search: recent news, headlines, announcements, or media coverage',
         '- scholarly-search: academic papers, journals, studies, or research literature',
-        '- deep-research: broad, multi-step research requiring synthesis across multiple sources',
+        '- deep-research: broad, multi-step research requiring source gathering, analysis, and final synthesis',
+        '',
+        'Use deep-research when one prompt asks for current/source context, operational or data analysis, and a final brief, report, update, or recommendation.',
         '',
         `Audience: ${submission.audienceType || 'general'}`,
         `Context: ${submission.context ? JSON.stringify(submission.context) : 'none'}`,

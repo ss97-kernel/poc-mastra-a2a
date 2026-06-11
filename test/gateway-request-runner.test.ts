@@ -177,6 +177,37 @@ describe("gateway request workflow runner", () => {
     );
   });
 
+  it("routes compound search, analysis, and synthesis prompts to deep research", async () => {
+    const getWorkflow = vi.fn();
+    const generate = vi.fn(async () => ({
+      text: "route this somewhere sensible",
+    }));
+    const getAgent = vi.fn(() => ({ generate }));
+
+    vi.doMock("../agents/gateway/src/mastra/index.js", () => ({
+      mastra: {
+        getWorkflow,
+        getAgent,
+      },
+    }));
+
+    const { resolveGatewayRequestSubmission } = await import(
+      "../agents/gateway/src/mastra/workflows/requestWorkflowRunner.ts"
+    );
+
+    const prompt =
+      "Prepare a customer-safe incident update using current market context and operational analysis.";
+    const resolved = await resolveGatewayRequestSubmission({ prompt });
+
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        type: "deep-research",
+        topic: prompt,
+        data: prompt,
+      })
+    );
+  });
+
   it("surfaces suspended workflow runs so the gateway can hand off to task polling", async () => {
     const suspendedResult = {
       status: "suspended",
