@@ -102,4 +102,4 @@ Watch MCP activity for search:
 ```bash
 docker compose --env-file .env logs -f web-search | rg "MCP Client|MCP Server|CallTool|Brave"
 ```
-test
+a2a-black-magic test
