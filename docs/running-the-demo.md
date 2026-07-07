@@ -132,4 +132,4 @@ npm run stop
 
 - Set `GATEWAY_URL=http://localhost:3001` before starting the frontend.
 
-test
+TEsting
